@@ -58,6 +58,8 @@ def main():
             random_click(*RECT_RESTART, connector, dev)
             time.sleep(0.5)
             combat_prep(connector, dev)
+        else:
+            print("未检测到开始或再次挑战按钮，尝试直接进入结算监控...")
 
         # 2. 主循环
         while True:

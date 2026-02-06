@@ -2,9 +2,12 @@ import sys
 import time
 import importlib.util
 import os
-import types  # 用于模块操作
+import subprocess
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject
-from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget, QApplication
+from PyQt6.QtWidgets import (
+    QHBoxLayout, QVBoxLayout, QWidget, QApplication,
+    QTableWidgetItem, QHeaderView
+)
 from PyQt6.QtGui import QFont
 
 # 引入 Fluent Widgets 组件
@@ -20,12 +23,15 @@ from qfluentwidgets import (
     FluentIcon as FIF,
     InfoBar,
     InfoBarPosition,
-    ProgressBar
+    ProgressBar,
+    NavigationItemPosition,
+    ScrollArea,
+    TableWidget
 )
 
 
 # ============================================
-# 1. 核心：路径自动定位
+# 1. scripts 目录路径自动定位
 # ============================================
 def find_project_root():
     """自动向上递归寻找包含 scripts 的目录"""
@@ -45,17 +51,17 @@ PROJECT_ROOT = find_project_root()
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-# 导入工具 (确保 utils/tools.py 已包含 set_running_state/check_running)
+# 导入工具
 try:
-    import utils.tools  # 获取模块对象以便动态检查
-    from utils.tools import ADBConnector, list_devices, set_running_state, StopScriptException
+    import utils.tools
+    from utils.tools import ADBConnector, set_running_state, StopScriptException
 except ImportError as e:
     print(f"导入错误: {e}")
     ADBConnector = None
 
 
 # ============================================
-# 2. 日志流
+# 2. 辅助类：日志流 & 工作线程
 # ============================================
 class EmittingStream(QObject):
     textWritten = pyqtSignal(str)
@@ -67,9 +73,7 @@ class EmittingStream(QObject):
         pass
 
 
-# ============================================
-# 3. 工作线程 (包含“魔法”中断补丁)
-# ============================================
+# 脚本执行线程
 class Worker(QThread):
     finished_signal = pyqtSignal()
     error_signal = pyqtSignal(str)
@@ -85,46 +89,32 @@ class Worker(QThread):
             self.finished_signal.emit()
             return
 
-        # 1. 开启全局运行状态
         set_running_state(True)
         file_name = os.path.basename(self.script_path)
         print(f"--- 正在启动: {file_name} ---")
 
-        # ===================================================
-        # 【核心黑科技】劫持 time.sleep 实现立即停止
-        # ===================================================
-        original_sleep = time.sleep  # 保存原始 sleep
+        # 劫持 sleep
+        original_sleep = time.sleep
 
         def interruptible_sleep(seconds):
-            """替代原版 sleep，支持中途打断"""
             end_time = time.time() + seconds
             while time.time() < end_time:
-                # 检查 utils.tools 里的状态
                 if hasattr(utils.tools, 'check_running'):
-                    utils.tools.check_running()  # 如果停止则抛出异常
-
-                # 每次只睡 0.1 秒，保证响应迅速
+                    utils.tools.check_running()
                 left = end_time - time.time()
                 original_sleep(min(0.1, max(0, left)))
 
-        # 覆盖 time.sleep
         time.sleep = interruptible_sleep
-        # ===================================================
 
         try:
-            # 2. 动态加载脚本
             mod_name = f"script_{int(time.time())}"
             spec = importlib.util.spec_from_file_location(mod_name, self.script_path)
             module = importlib.util.module_from_spec(spec)
             sys.modules[mod_name] = module
 
-            # 切换工作目录到项目根目录 (解决 templates 路径问题)
             os.chdir(PROJECT_ROOT)
-
-            # 执行脚本代码
             spec.loader.exec_module(module)
 
-            # 3. 运行入口函数
             if hasattr(module, 'run'):
                 module.run(self.device_id)
             elif hasattr(module, 'main'):
@@ -136,24 +126,168 @@ class Worker(QThread):
             print(">>> 🛑 脚本已成功停止")
         except Exception as e:
             import traceback
-            # 过滤掉我们自己抛出的 StopScriptException
             if "StopScriptException" not in str(type(e)):
                 print(f"❌ 运行出错: {e}\n{traceback.format_exc()}")
                 self.error_signal.emit(str(e))
         finally:
-            # ===============================================
-            # 【恢复现场】还原 time.sleep
-            # ===============================================
             time.sleep = original_sleep
             self.finished_signal.emit()
 
     def stop(self):
-        # 关闭全局开关 -> interruptible_sleep 会捕获到并抛出异常
         set_running_state(False)
 
 
 # ============================================
-# 4. 主界面 (UI 优化版 + 修复顺序错误)
+# 3. 设备信息获取线程
+# ============================================
+class DeviceInfoWorker(QThread):
+    # 发送 List[Tuple[str, str]]，方便表格显示
+    info_signal = pyqtSignal(list)
+
+    def run(self):
+        data = []
+        try:
+            connector = ADBConnector()
+            devices = connector.list_devices()
+            if not devices:
+                data.append(("状态", "未检测到设备"))
+                self.info_signal.emit(data)
+                return
+
+            dev = devices[0]
+            adb = connector.adb_path
+
+            data.append(("设备 ID", dev))
+
+            cmds = [
+                ("设备型号", ["shell", "getprop", "ro.product.model"]),
+                ("品牌厂商", ["shell", "getprop", "ro.product.brand"]),
+                ("安卓版本", ["shell", "getprop", "ro.build.version.release"]),
+                ("屏幕分辨率", ["shell", "wm", "size"]),
+                ("电池电量", ["shell", "dumpsys", "battery"])
+            ]
+
+            for label, cmd_args in cmds:
+                try:
+                    full_cmd = [adb, "-s", dev] + cmd_args
+                    startupinfo = None
+                    if os.name == 'nt':
+                        startupinfo = subprocess.STARTUPINFO()
+                        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+
+                    res = subprocess.run(full_cmd, capture_output=True, text=True, startupinfo=startupinfo, timeout=5)
+                    output = res.stdout.strip()
+
+                    if "battery" in cmd_args:
+                        for line in output.split('\n'):
+                            if "level" in line:
+                                output = line.split(':')[-1].strip() + "%"
+                                break
+
+                    data.append((label, output))
+                except Exception:
+                    data.append((label, "获取失败"))
+
+            self.info_signal.emit(data)
+
+        except Exception as e:
+            data.append(("错误", str(e)))
+            self.info_signal.emit(data)
+
+
+# ============================================
+# 4. 设置页面
+# ============================================
+class SettingInterface(ScrollArea):
+    def __init__(self, parent=None):
+        super().__init__(parent=parent)
+        self.setObjectName('settingInterface')
+        self.scrollWidget = QWidget()
+        self.vBoxLayout = QVBoxLayout(self.scrollWidget)
+
+        self.setWidget(self.scrollWidget)
+        self.setWidgetResizable(True)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        self.vBoxLayout.setContentsMargins(30, 30, 30, 30)
+        self.vBoxLayout.setSpacing(20)
+
+        # 1. 标题
+        self.titleLabel = SubtitleLabel('设置', self.scrollWidget)
+        self.titleLabel.setFont(QFont("Microsoft YaHei", 18, QFont.Weight.Bold))
+        self.vBoxLayout.addWidget(self.titleLabel)
+
+        # 2. 设备信息卡片
+        self.deviceInfoCard = CardWidget(self.scrollWidget)
+        self.infoLayout = QVBoxLayout(self.deviceInfoCard)
+        self.infoLayout.setContentsMargins(20, 20, 20, 20)
+
+        # 卡片标题栏
+        title_h_layout = QHBoxLayout()
+        self.infoTitle = BodyLabel("当前设备信息", self.deviceInfoCard)
+        self.infoTitle.setFont(QFont("Microsoft YaHei", 12, QFont.Weight.Bold))
+
+        self.refreshInfoBtn = PushButton("刷新", self.deviceInfoCard)
+        self.refreshInfoBtn.setIcon(FIF.SYNC)
+        self.refreshInfoBtn.setFixedWidth(80)
+        self.refreshInfoBtn.clicked.connect(self.load_device_info)
+
+        title_h_layout.addWidget(self.infoTitle)
+        title_h_layout.addStretch(1)
+        title_h_layout.addWidget(self.refreshInfoBtn)
+
+        # 表格显示区
+        self.infoTable = TableWidget(self.deviceInfoCard)
+        self.infoTable.setBorderVisible(True)
+        self.infoTable.setBorderRadius(8)
+        self.infoTable.setWordWrap(False)
+        self.infoTable.setColumnCount(2)
+        self.infoTable.setHorizontalHeaderLabels(['属性', '详细信息'])
+        # 隐藏垂直表头（行号）
+        self.infoTable.verticalHeader().hide()
+        # 让表格列宽自动铺满
+        self.infoTable.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        # 设置初始高度
+        self.infoTable.setFixedHeight(270)
+
+        self.infoLayout.addLayout(title_h_layout)
+        self.infoLayout.addSpacing(15)
+        self.infoLayout.addWidget(self.infoTable)
+
+        self.vBoxLayout.addWidget(self.deviceInfoCard)
+        self.vBoxLayout.addStretch(1)
+
+        self.load_device_info()
+
+    def load_device_info(self):
+        # 清空并显示加载状态
+        self.infoTable.setRowCount(1)
+        self.infoTable.setItem(0, 0, QTableWidgetItem("状态"))
+        self.infoTable.setItem(0, 1, QTableWidgetItem("正在读取..."))
+        self.refreshInfoBtn.setEnabled(False)
+
+        self.worker = DeviceInfoWorker()
+        self.worker.info_signal.connect(self.on_info_loaded)
+        self.worker.start()
+
+    def on_info_loaded(self, data):
+        self.refreshInfoBtn.setEnabled(True)
+        # 填充表格
+        self.infoTable.setRowCount(len(data))
+        for i, (key, val) in enumerate(data):
+            # 第一列：属性名
+            item_key = QTableWidgetItem(key)
+            item_key.setFlags(Qt.ItemFlag.ItemIsEnabled)  # 只读
+            self.infoTable.setItem(i, 0, item_key)
+
+            # 第二列：值
+            item_val = QTableWidgetItem(str(val))
+            item_val.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)  # 可选中复制
+            self.infoTable.setItem(i, 1, item_val)
+
+
+# ============================================
+# 5. 主页 (HomeInterface)
 # ============================================
 class HomeInterface(QWidget):
     def __init__(self, parent=None):
@@ -161,8 +295,6 @@ class HomeInterface(QWidget):
         self.setObjectName('homeInterface')
         self.worker = None
         self.original_stdout = sys.stdout
-
-        # 使用字典存储路径
         self.script_map = {}
 
         self.init_ui()
@@ -171,7 +303,6 @@ class HomeInterface(QWidget):
         self.emitting_stream.textWritten.connect(self.on_log_received)
         sys.stdout = self.emitting_stream
 
-        # 启动扫描
         self.refresh_devices()
         self.scan_scripts()
 
@@ -184,52 +315,43 @@ class HomeInterface(QWidget):
         self.titleLabel.setFont(QFont("Microsoft YaHei", 18, QFont.Weight.Bold))
         self.vBoxLayout.addWidget(self.titleLabel)
 
-        # --- 设备卡片 (优化间距) ---
+        # 设备
         self.deviceCard = CardWidget(self)
         layout_d = QHBoxLayout(self.deviceCard)
         layout_d.setContentsMargins(16, 12, 16, 12)
         layout_d.setSpacing(10)
-
         self.deviceCombo = ComboBox(self)
         btn_d = PushButton("刷新设备", self)
         btn_d.setIcon(FIF.SYNC)
         btn_d.clicked.connect(self.refresh_devices)
-
         layout_d.addWidget(BodyLabel("设备", self))
         layout_d.addWidget(self.deviceCombo, 1)
         layout_d.addWidget(btn_d)
-
         self.vBoxLayout.addWidget(self.deviceCard)
 
-        # --- 脚本卡片 (优化间距) ---
+        # 脚本
         self.scriptCard = CardWidget(self)
         layout_s = QHBoxLayout(self.scriptCard)
         layout_s.setContentsMargins(16, 12, 16, 12)
         layout_s.setSpacing(10)
-
         self.scriptCombo = ComboBox(self)
         btn_s = PushButton("刷新列表", self)
         btn_s.setIcon(FIF.FOLDER)
         btn_s.clicked.connect(self.scan_scripts)
-
         layout_s.addWidget(BodyLabel("脚本", self))
         layout_s.addWidget(self.scriptCombo, 1)
         layout_s.addWidget(btn_s)
-
         self.vBoxLayout.addWidget(self.scriptCard)
 
-        # --- 按钮区域 ---
+        # 按钮
         self.btnLayout = QHBoxLayout()
         self.startBtn = PrimaryPushButton("开始运行", self)
         self.startBtn.setIcon(FIF.PLAY)
         self.startBtn.clicked.connect(self.start_script)
-
         self.stopBtn = PushButton("停止运行", self)
         self.stopBtn.setIcon(FIF.PAUSE)
         self.stopBtn.setEnabled(False)
         self.stopBtn.clicked.connect(self.stop_script)
-
-        # 清空日志按钮
         self.clearBtn = PushButton("清空日志", self)
         self.clearBtn.setIcon(FIF.DELETE)
 
@@ -238,17 +360,15 @@ class HomeInterface(QWidget):
         self.btnLayout.addWidget(self.clearBtn)
         self.vBoxLayout.addLayout(self.btnLayout)
 
-        # --- 日志区域 ---
+        # 日志
         self.progressBar = ProgressBar(self)
         self.progressBar.hide()
         self.vBoxLayout.addWidget(self.progressBar)
-
         self.logText = TextEdit(self)
         self.logText.setReadOnly(True)
         self.logText.setFixedHeight(300)
         self.vBoxLayout.addWidget(self.logText)
 
-        # 必须等到 self.logText 创建后，再绑定信号
         self.clearBtn.clicked.connect(self.logText.clear)
 
     def refresh_devices(self):
@@ -268,19 +388,16 @@ class HomeInterface(QWidget):
             self.deviceCombo.addItem("ADB 异常")
 
     def scan_scripts(self):
-        """扫描 scripts 文件夹"""
         self.scriptCombo.clear()
         self.script_map = {}
         count = 0
 
-        # 1. Main.py
         # main_p = os.path.join(PROJECT_ROOT, "main.py")
         # if os.path.exists(main_p):
         #     self.scriptCombo.addItem("main.py")
         #     self.script_map["main.py"] = main_p
         #     count += 1
 
-        # 2. Scripts
         target_dir = None
         for name in ["scripts", "scrips"]:
             d = os.path.join(PROJECT_ROOT, name)
@@ -289,16 +406,12 @@ class HomeInterface(QWidget):
                 break
 
         if target_dir:
-            print(f"扫描脚本目录: {target_dir}")
             for f in os.listdir(target_dir):
                 full_path = os.path.join(target_dir, f)
                 if f.endswith(".py") and os.path.isfile(full_path):
                     self.scriptCombo.addItem(f)
                     self.script_map[f] = full_path
                     count += 1
-                    print(f"  + 加载: {f}")
-        else:
-            print("警告: 未找到 scripts 文件夹")
 
         if count > 0:
             self.scriptCombo.setCurrentIndex(0)
@@ -312,17 +425,14 @@ class HomeInterface(QWidget):
             self.show_info("错误", "请先连接设备", True)
             return
 
-        # 使用字典查路径，确保稳定
         name = self.scriptCombo.currentText()
         script_path = self.script_map.get(name)
-
         if not script_path:
             self.show_info("错误", "请选择有效的脚本", True)
             return
 
         self.toggle_ui(True)
         self.logText.clear()
-
         self.worker = Worker(script_path, device)
         self.worker.finished_signal.connect(self.on_finished)
         self.worker.error_signal.connect(lambda e: self.show_info("出错", "查看日志", True))
@@ -344,7 +454,6 @@ class HomeInterface(QWidget):
         self.stopBtn.setEnabled(running)
         self.deviceCombo.setEnabled(not running)
         self.scriptCombo.setEnabled(not running)
-        self.clearBtn.setEnabled(True)
         if running:
             self.progressBar.show()
             self.progressBar.setRange(0, 0)
@@ -367,14 +476,21 @@ class HomeInterface(QWidget):
         super().closeEvent(event)
 
 
+# ============================================
+# 6. 主窗口
+# ============================================
 class MainWindow(FluentWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle('二重螺旋 自动化')
         self.resize(900, 700)
+
         self.homeInterface = HomeInterface(self)
         self.homeInterface.setObjectName('homeInterface')
         self.addSubInterface(self.homeInterface, FIF.HOME, '控制台')
+
+        self.settingInterface = SettingInterface(self)
+        self.addSubInterface(self.settingInterface, FIF.SETTING, '设置', NavigationItemPosition.BOTTOM)
 
 
 if __name__ == '__main__':
