@@ -1,74 +1,73 @@
 import cv2
-from utils.tools import ADBConnector, ensure_adb_connection, list_devices, execute_screenshot_and_match, random_click, \
-    random_sleep, random_sleep_extended
 import sys
 import time
+from utils.tools import *
+from utils.scripts import *
 
-#轮数
-Round = 999
+# --- 配置区：集中管理坐标和模板路径 ---
+TEMPLATES = {
+    "start": "../templates/start.png",
+    "restart": "../templates/restart.png"
+}
 
-# 图像识别参数
-check_interval = 2  # 检测间隔（秒）
+# 坐标配置 (x1, y1)
+RECT_RESTART = (1682, 1700, 2147, 1778)
+RECT_CONFIRM = (1440, 1190, 1980, 1250)
+RECT_START = (2315, 1705, 2770, 1775)
+# =================================================================
 
-start_time = time.time()
+run_count = 0
+
+
+def combat_prep(connector, dev):
+    """封装：确认选择 -> 进场"""
+    print("-> 点击确认选择...")
+    random_click(*RECT_CONFIRM, connector, dev)
+    # 根据原代码逻辑，此处不需要额外操作，直接等待下一轮检测
+
 
 def main():
+    global run_count
     try:
-        # 确保ADB连接
         connector = ensure_adb_connection()
-
-        # 列出设备
         devices = list_devices(connector)
+        if not devices:
+            sys.exit(1)
+        dev = devices[0]
 
-        # 如果有设备，执行截图和模板匹配
-        if devices:
-            first_device = devices[0]
-            print(f"连接到设备: {first_device}")
+        # 1. 初始检测
+        print("正在检查初始状态...")
+        res_start = execute_screenshot_and_match(dev, connector, TEMPLATES["start"], debug=False)
+        res_restart = execute_screenshot_and_match(dev, connector, TEMPLATES["restart"], debug=False)
 
-            # 开始挑战
-            # res = execute_screenshot_and_match(first_device, connector, "../templates/start.png",
-            #                                    (2315, 1705, 2700, 1775), debug=False)
-            # if res:
-            #     random_click(2315, 1705, 2770, 1775, connector, first_device)
-            #     random_sleep(3)
-            #
-            #     random_click(1440, 1190, 1980, 1250, connector, first_device)
-            #
-            #     random_sleep_extended(80, 90)
-            # else:
-            #     print("未找到开始按钮")
-            #     sys.exit(1)
+        if res_start['is_match']:
+            print("✓ 检测到开始界面")
+            random_click(*RECT_START, connector, dev)
+            random_sleep(1)
+            combat_prep(connector, dev)
+        elif res_restart['is_match']:
+            print("✓ 检测到再次进行界面")
+            random_click(*RECT_RESTART, connector, dev)
+            random_sleep(1)
+            combat_prep(connector, dev)
 
-            # 主循环
-            for i in range(Round):
-                print(f"\n--- 第 {i + 1} 轮开始 ---")
+        # 2. 主循环
+        while True:
+            res = execute_screenshot_and_match(dev, connector, TEMPLATES["restart"], debug=False)
+            if res['is_match']:
+                run_count += 1
+                print(f"\n--- 第 {run_count} 轮开始 ---")
+                random_click(*RECT_RESTART, connector, dev)
+                random_sleep(2)
+                combat_prep(connector, dev)
 
-                # 检测再次进行按钮
-                attempt_count = 0
-                while True:
-                    res = execute_screenshot_and_match(first_device, connector, "../templates/restart.png",
-                                                       (1682, 1700, 2147, 1778), debug=False)
-                    if res:
-                        print("✓ 检测到再次进行按钮，点击继续...")
-                        random_click(1682, 1700, 2147, 1778, connector, first_device)
-                        random_sleep(3)
-                        random_click(1440, 1190, 1980, 1250, connector, first_device)
-                        break
-                    else:
-                        attempt_count += 1
-                        # 每隔一定次数打印一次等待信息，避免输出过多
-                        if attempt_count % 5 == 0:
-                            print(f"⏳ 等待再次进行按钮出现... (已等待 {attempt_count * check_interval} 秒)")
-                        time.sleep(check_interval)
+            time.sleep(2)
 
-                print(f"--- 第 {i + 1} 轮完成 ---")
-
-    except RuntimeError as e:
+    except Exception as e:
         print(f"❌ 错误: {e}")
-        sys.exit(1)
+    finally:
+        cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
     main()
-    cv2.waitKey()
-    cv2.destroyAllWindows()

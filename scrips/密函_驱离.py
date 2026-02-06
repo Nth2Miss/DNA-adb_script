@@ -3,7 +3,7 @@ import sys
 import time
 from utils.tools import *
 
-# --- 配置区：集中管理坐标和路径，方便修改 ---
+# --- 配置区：集中管理坐标和路径 ---
 TEMPLATES = {
     "start": "../templates/xzmh.png",
     "confirm": "../templates/confirm.png",
@@ -19,7 +19,6 @@ COORDS = {
     "restart_btn": (1682, 1700, 2147, 1778),
     "ult_pos": (2050, 1650)
 }
-
 
 
 def combat_prep(connector, device, joystick):
@@ -48,14 +47,22 @@ def main():
     joystick = JoystickController(connector, 450, 1440, 150, dev)
     run_count = 0
 
-    # 1. 初始检测进入
+    # 1. 初始检测进入（添加双重入口判断）
     print("正在检查初始状态...")
-    res = execute_screenshot_and_match(dev, connector, TEMPLATES["start"], debug=False)
-    if res['is_match']:
+    res_start = execute_screenshot_and_match(dev, connector, TEMPLATES["start"], debug=False)
+    res_restart = execute_screenshot_and_match(dev, connector, TEMPLATES["restart"], debug=False)
+
+    if res_start['is_match']:
+        print("-> 检测到初始【选择密函】界面，开始流程...")
         random_click(*COORDS["start_btn"], connector, dev)
         combat_prep(connector, dev, joystick)
+    elif res_restart['is_match']:
+        print("-> 检测到【再次挑战】界面，直接跳转...")
+        random_click(*COORDS["restart_btn"], connector, dev)
+        time.sleep(1)
+        combat_prep(connector, dev, joystick)
     else:
-        print("未检测到开始按钮，尝试直接进入结算监控...")
+        print("未检测到开始或再次挑战按钮，尝试直接进入结算监控...")
 
     # 2. 主逻辑循环：监控结算与重开
     while True:
@@ -69,17 +76,18 @@ def main():
             # 点击结算确认
             random_click(*COORDS["confirm_btn"], connector, dev)
 
-            # 等待“再次挑战”按钮出现
-            print("正在等待再次挑战按钮...")
-            if wait_until_match(dev, connector, TEMPLATES["restart"], timeout=60):
-                random_click(*COORDS["restart_btn"], connector, dev)
-                time.sleep(1)  # 等待界面切换
-                combat_prep(connector, dev, joystick)
-            else:
-                print("错误：长时间未找到再次挑战按钮，脚本停止")
-                break
+            # 优化：移除冗余的 wait_until_match，直接在循环中检测下一阶段
+            print("正在等待结算动画结束...")
+            time.sleep(2)
 
-        time.sleep(5)  # 轮询间隔，避免截图过快导致占用高
+            # 监控“再次挑战”按钮（优化：直接在此处处理重连逻辑）
+        res_restart_loop = execute_screenshot_and_match(dev, connector, TEMPLATES["restart"], debug=False)
+        if res_restart_loop['is_match']:
+            random_click(*COORDS["restart_btn"], connector, dev)
+            time.sleep(1)  # 等待界面切换
+            combat_prep(connector, dev, joystick)
+
+        time.sleep(3)  # 轮询间隔
 
 
 if __name__ == "__main__":

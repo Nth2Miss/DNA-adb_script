@@ -14,3 +14,17 @@ def fuwei(connector, device_id):
 def ult(connector, device_id):
     print("-> 执行大招...")
     click(2050, 1650, connector, device_id)
+
+def spiral(connector, device_id, num):
+    print("-> 执行螺旋操作...")
+    for i in range(num):
+        print(f"   螺旋第 {i + 1} 次")
+        click(2330, 1020, connector, device_id)
+        time.sleep(0.5)
+
+
+def timeout(connector, device_id):
+    print("-> 执行超时重试...")
+    # esc
+    click(100, 80, connector, device_id)
+

@@ -5,7 +5,7 @@ from utils.tools import *
 from utils.scripts import *
 
 
-# --- 配置区：集中管理坐标和路径，方便修改 ---
+# --- 配置区：集中管理坐标和模板路径 ---
 TEMPLATES = {
     "start": "../templates/start_1.png",
     "restart": "../templates/restart.png"
@@ -35,11 +35,12 @@ def combat_prep(connector, device, joystick):
     joystick.move('w', 10)
     joystick.move('a', 10)
     joystick.move('w', 3)
-    joystick.move('a', 25)
+    joystick.move('a', 20)
 
     fuwei(connector, device)
     time.sleep(1)
     ult(connector, device)
+    print("-> 等待结算")
 
 
 def main():
@@ -63,24 +64,33 @@ def main():
         )
 
 
-        # 1. 初始检测进入
+        # 1. 初始状态检测与分流
         print("正在检查初始状态...")
-        res = execute_screenshot_and_match(dev, connector, TEMPLATES["start"], debug=False)
-        if res['is_match']:
-            print("-> 开始挑战...")
+        res_start = execute_screenshot_and_match(dev, connector, TEMPLATES["start"], debug=False)
+        res_restart = execute_screenshot_and_match(dev, connector, TEMPLATES["restart"], debug=False)
+
+        if res_start['is_match']:
+            print("-> 检测到初始界面，开始挑战...")
             click(*POS_START_BTN, connector, dev)
             combat_prep(connector, dev, joystick)
+        elif res_restart['is_match']:
+            print("-> 检测到再次挑战界面，直接重开...")
+            click(*POS_RESTART_BTN, connector, dev)
+            time.sleep(1)
+            combat_prep(connector, dev, joystick)
         else:
-            print("未检测到开始按钮，尝试直接进入结算监控...")
+            print("未检测到开始或再次挑战按钮，尝试直接进入结算监控...")
 
         # 2. 主逻辑循环：监控结算与重开
         while True:
+            # 仅执行一次匹配
             res_restart = execute_screenshot_and_match(dev, connector, TEMPLATES["restart"], debug=False)
 
             if res_restart['is_match']:
                 run_count += 1
                 print(f"\n===== 第 {run_count} 次运行完成 =====")
 
+                # 使用预设坐标点击
                 click(*POS_RESTART_BTN, connector, dev)
 
                 time.sleep(1)  # 等待界面切换

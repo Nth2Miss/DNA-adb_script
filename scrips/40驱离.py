@@ -1,67 +1,81 @@
-from utils.tools import *
+import cv2
 import sys
-import time
+from utils.tools import *
+from utils.scripts import *
 
-Round = 9999
-i = 0
+
+# --- 配置区：集中管理坐标和模板路径 ---
+TEMPLATES = {
+    "start": "../templates/start_1.png",
+    "restart": "../templates/restart.png"
+}
+
+# 坐标配置 (x1, y1)
+RECT_START = (2315, 1705, 2770, 1775)
+RECT_CONFIRM = (1440, 1190, 1980, 1250)
+RECT_RESTART = (1682, 1700, 2147, 1778)
+POS_ULT = (2050, 1650)  # 大招坐标
+
+# 技能/摇杆参数
+JOYSTICK_CENTER = (450, 1440)  # 摇杆中心点
+# =================================================================
+
+run_count = 0
+
+
+def combat_prep(connector, dev):
+    """封装：确认 -> 加载 -> 开大"""
+    print("-> 确认选择并进入...")
+    random_click(*RECT_CONFIRM, connector, dev)
+
+    print("-> 等待加载 (15s)...")
+    time.sleep(15)
+
+    ult(connector, device)
+    time.sleep(10)
+
 
 def main():
+    global run_count
     try:
-        # 确保ADB连接
         connector = ensure_adb_connection()
-
-        # 列出设备
         devices = list_devices(connector)
-        
-        # 如果有设备，执行截图和模板匹配
-        if devices:
-            first_device = devices[0]
+        if not devices: sys.exit(1)
+        dev = devices[0]
 
-            # 开始挑战
-            res = execute_screenshot_and_match(first_device, connector, "../templates/start_1.png",debug=False)
+        # 1. 初始检测分流
+        print("正在检查初始状态...")
+        res_start = execute_screenshot_and_match(dev, connector, TEMPLATES["start"], debug=False)
+        res_restart = execute_screenshot_and_match(dev, connector, TEMPLATES["restart"], debug=False)
+
+        if res_start['is_match']:
+            print("✓ 检测到开始界面")
+            random_click(*RECT_START, connector, dev)
+            time.sleep(0.5)
+            combat_prep(connector, dev)
+        elif res_restart['is_match']:
+            print("✓ 检测到再次挑战界面")
+            random_click(*RECT_RESTART, connector, dev)
+            time.sleep(0.5)
+            combat_prep(connector, dev)
+
+        # 2. 主循环
+        while True:
+            res = execute_screenshot_and_match(dev, connector, TEMPLATES["restart"], debug=False)
             if res['is_match']:
-                random_click(2315,1705,2770,1775, connector, first_device)
+                run_count += 1
+                print(f"\n第 {run_count} 次运行")
+                random_click(*RECT_RESTART, connector, dev)
                 time.sleep(0.5)
-                random_click(1440, 1190, 1980, 1250, connector, first_device)
+                combat_prep(connector, dev)
 
-                time.sleep(15)
-                connector.click_screen(2050, 1650, first_device)
+            time.sleep(2)
 
-            else:
-                print("未找到开始按钮")
-                sys.exit(1)
-
-            # 主循环
-            # for i in range(Round):
-            while True:
-                global i
-                # 再次进行
-                res = execute_screenshot_and_match(first_device, connector, "../templates/restart.png", debug=False)
-                # print(f"识别{res['is_match']}")
-                if res['is_match']:
-                    print(f"\n第{i + 1}次运行")
-                    i += 1
-
-                    random_click(1682, 1700, 2147, 1778, connector, first_device)
-                    time.sleep(0.5)
-
-                    random_click(1440, 1190, 1980, 1250, connector, first_device)
-
-                    time.sleep(15)
-
-                    connector.click_screen(2050, 1650, first_device)
-
-                    time.sleep(10)
-
-
-
-        
-    except RuntimeError as e:
-        print(e)
-        sys.exit(1)
+    except Exception as e:
+        print(f"错误: {e}")
+    finally:
+        cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
     main()
-    cv2.waitKey()
-    cv2.destroyAllWindows()
