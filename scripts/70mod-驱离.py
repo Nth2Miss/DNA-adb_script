@@ -6,8 +6,8 @@ from utils.scripts import *
 
 # --- 配置区：集中管理坐标和模板路径 ---
 TEMPLATES = {
-    "start": "../templates/start.png",
-    "restart": "../templates/restart.png"
+    "start": "templates/start.png",
+    "restart": "templates/restart.png"
 }
 
 # 坐标配置 (x1, y1)

@@ -9,7 +9,36 @@ from PIL import Image
 import io
 import math
 
+# ============================================
+# 全局运行控制
+# ============================================
+_IS_RUNNING = True  # 全局运行标志
 
+class StopScriptException(Exception):
+    """自定义异常，用于在停止时跳出深层循环"""
+    pass
+
+def set_running_state(state: bool):
+    """GUI 调用此函数来控制启停"""
+    global _IS_RUNNING
+    _IS_RUNNING = state
+
+def check_running():
+    """检查是否应该停止，如果是则抛出异常"""
+    if not _IS_RUNNING:
+        raise StopScriptException("用户请求停止脚本")
+
+def smart_sleep(seconds):
+    """
+    【新增】智能休眠函数
+    替代 time.sleep，每 0.1 秒检查一次停止信号
+    """
+    end_time = time.time() + seconds
+    while time.time() < end_time:
+        check_running()  # <--- 关键：时刻检查停止
+        # 计算剩余时间，最多睡 0.1 秒
+        remaining = end_time - time.time()
+        time.sleep(min(0.1, max(0, remaining)))
 
 class ADBConnector:
     """
@@ -591,34 +620,31 @@ def random_click(x1, y1, x2, y2, connector=None, device_id=None):
 
 def random_sleep(t, variation=0.1):
     """
-    随机暂停一段时间，模拟真实用户操作
-    :param t: 基础等待时间（秒）
-    :param variation: 变化系数，默认为0.1，表示在基础时间上增加随机变化
+    修改版：支持 GUI 中断
     """
-    # 对于游戏脚本，我们使用更自然的等待模式
-    if t < 1:  # 如果基础时间小于1秒，使用较小的变化范围
+    check_running()  # 先检查一次
+
+    # 原有逻辑计算时间
+    if t < 1:
         sleep_time = random.uniform(t * 0.8, t * 1.5)
-    else:  # 对于较长的等待时间，使用更大幅度的变化
-        # 基础时间加上一个基于variation参数的随机值
+    else:
         base_variation = t * variation
         sleep_time = t + random.uniform(-base_variation, base_variation * 2)
-
-        # 确保等待时间不会太短
         sleep_time = max(sleep_time, 0.3)
 
-    time.sleep(sleep_time)
     print(f"等待 {sleep_time:.2f} 秒")
+    smart_sleep(sleep_time)  # <--- 改用智能休眠
 
 
 def random_sleep_extended(min_time, max_time):
     """
-    在指定范围内随机暂停，适用于等待游戏加载或完成
-    :param min_time: 最短等待时间
-    :param max_time: 最长等待时间
+    修改版：支持 GUI 中断
     """
+    check_running()  # 先检查一次
+
     sleep_time = random.uniform(min_time, max_time)
-    time.sleep(sleep_time)
     print(f"等待 {sleep_time:.2f} 秒")
+    smart_sleep(sleep_time)  # <--- 改用智能休眠
 
 def wait_until_match(device, connector, template, timeout=30):
     """循环检测图片直到匹配成功或超时"""
