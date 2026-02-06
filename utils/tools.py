@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 from PIL import Image
 import io
-
+import math
 
 
 
@@ -297,113 +297,186 @@ class ADBConnector:
             print(f"点击屏幕时发生错误: {e}")
             return False
 
-    def compare_region_with_template(self, region_data, template_path, threshold=0.8, debug=False):
+    def swipe_screen(self, x1: int, y1: int, x2: int, y2: int, duration: int = 300,
+                     device_id: Optional[str] = None, debug: bool = False) -> bool:
         """
-        比较区域数据与模板图片的相似度
+        在屏幕上执行滑动操作 (模拟摇杆拖拽)
 
         Args:
-            region_data: 区域图片数据，可以是numpy数组或字节数据
-            template_path: 模板图片路径
-            threshold: 匹配相似度阈值，默认0.8
-            debug: 是否启用调试模式，显示详细信息
-
-        Returns:
-            dict: 包含匹配结果和匹配相似度的字典
-
-        Raises:
-            ValueError: 当无法读取模板图片或解码区域数据失败时
+            x1, y1: 起始坐标 (通常是摇杆中心)
+            x2, y2: 终点坐标 (通常是摇杆边缘)
+            duration: 滑动持续时间(ms)，即按住摇杆的时间
+            device_id: 设备ID
         """
-        # 读取模板图片
-        template = cv2.imread(template_path)
-        if template is None:
+        try:
+            # adb shell input swipe <x1> <y1> <x2> <y2> <duration>
+            cmd = ["shell", "input", "swipe", str(x1), str(y1), str(x2), str(y2), str(duration)]
+            result = self.execute_adb_command(cmd, device_id)
+
+            if result is not None:
+                if debug:
+                    print(f"滑动操作: ({x1},{y1}) -> ({x2},{y2}) 耗时 {duration}ms")
+                return True
+            return False
+        except Exception as e:
+            print(f"滑动操作失败: {e}")
+            return False
+
+    def compare_region_with_template(self, screen_data, template_path, threshold=0.8, debug=False):
+        """
+        全屏自适应匹配，并返回目标在大图上的坐标范围
+        """
+        # 1. 加载并预处理图片
+        template_bgr = cv2.imread(template_path)
+        if template_bgr is None:
             raise ValueError(f"无法读取模板图片: {template_path}")
+        template_gray = cv2.cvtColor(template_bgr, cv2.COLOR_BGR2GRAY)
 
-        # 如果region_data是numpy数组（图片），直接使用；如果是字节数据，则解码
-        if isinstance(region_data, np.ndarray):
-            region = region_data
+        if isinstance(screen_data, np.ndarray):
+            screen_gray = cv2.cvtColor(screen_data, cv2.COLOR_BGR2GRAY) if len(screen_data.shape) == 3 else screen_data
         else:
-            region = cv2.imdecode(np.frombuffer(region_data, np.uint8), cv2.IMREAD_COLOR)
+            screen_bgr = cv2.imdecode(np.frombuffer(screen_data, np.uint8), cv2.IMREAD_COLOR)
+            if screen_bgr is None:
+                raise ValueError("无法解码屏幕数据")
+            screen_gray = cv2.cvtColor(screen_bgr, cv2.COLOR_BGR2GRAY)
 
-        if region is None:
-            raise ValueError("无法解码区域数据为图片")
+        s_h, s_w = screen_gray.shape[:2]
+        t_h, t_w = template_gray.shape[:2]
 
-        if debug:
-            print(f"区域图片尺寸: {region.shape}")
-            print(f"模板图片尺寸: {template.shape}")
+        best_max_corr = -1.0
+        best_loc = (0, 0)
+        best_scale = 1.0
 
-        if debug:
-            print(f"原始区域图片尺寸: {region.shape}")
-            print(f"原始模板图片尺寸: {template.shape}")
+        # 2. 多尺度匹配
+        scales = np.linspace(0.4, 1.2, 9)
+        for scale in scales:
+            nw, nh = int(t_w * scale), int(t_h * scale)
+            if nw > s_w or nh > s_h or nw < 10 or nh < 10:
+                continue
 
-        # 检查区域图像是否为纯色或几乎纯色（如白色屏幕）
-        # 计算图像的标准差，如果标准差很小，说明图像几乎是纯色的
-        region_std = np.std(region)
-        if debug:
-            print(f"区域图像标准差: {region_std}")
-        
-        # 如果图像标准差很小，说明图像几乎是纯色的，不应该匹配任何复杂模板
-        if region_std < 15:  # 阈值可根据需要调整，平衡纯色检测和正常图像处理
-            if debug:
-                print("检测到纯色区域图像，直接返回不匹配")
-            return {"is_match": False, "max_val": 0.0}
+            interpolation = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_CUBIC
+            resized_temp = cv2.resize(template_gray, (nw, nh), interpolation=interpolation)
 
-        # 图像预处理：转换为灰度图以提高匹配稳定性
-        region_gray = cv2.cvtColor(region, cv2.COLOR_BGR2GRAY)
-        template_gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
+            res = cv2.matchTemplate(screen_gray, resized_temp, cv2.TM_CCOEFF_NORMED)
+            _, max_val, _, max_loc = cv2.minMaxLoc(res)
 
-        # 使用直方图均衡化来改善对比度
-        region_eq = cv2.equalizeHist(region_gray)
-        template_eq = cv2.equalizeHist(template_gray)
+            if max_val > best_max_corr:
+                best_max_corr = max_val
+                best_loc = max_loc
+                best_scale = scale
 
-        # 应用轻微的高斯模糊以减少噪声，同时保留边缘
-        region_blur = cv2.GaussianBlur(region_eq, (3, 3), 0)
-        template_blur = cv2.GaussianBlur(template_eq, (3, 3), 0)
+            if max_val >= 0.95:  # 极高匹配度直接跳出
+                break
 
-        # 自适应阈值二值化（适用于光照不均匀的情况）
-        # 参数：源图像，最大值，自适应方法，阈值类型，邻域大小，常数C
-        region_binary = cv2.adaptiveThreshold(region_blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY,5, 4)
-        template_binary = cv2.adaptiveThreshold(template_blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 5, 4)
+        # 3. 计算坐标范围
+        # best_loc 是左上角 (x, y)
+        x1, y1 = best_loc
+        # 根据匹配时的缩放比例计算右下角
+        x2 = x1 + int(t_w * best_scale)
+        y2 = y1 + int(t_h * best_scale)
 
+        is_match = best_max_corr >= threshold
 
-
-        # 将两个图像调整为相同的尺寸以进行匹配
-        template_h, template_w = template_binary.shape[:2]
-        region_resized = cv2.resize(region_binary, (template_w, template_h), interpolation=cv2.INTER_CUBIC)
-
-        if debug:
-            print(f"调整后区域图片尺寸: {region_resized.shape}")
-            print(f"调整后模板图片尺寸: {template_binary.shape}")
-
-            # 显示调试图像
-            cv2.imshow("region", region_resized)
-            cv2.imshow("template", template_binary)
-
-        # 尝试多种模板匹配方法，使用效果最好的结果
-        methods = [cv2.TM_CCOEFF_NORMED, cv2.TM_CCORR_NORMED, cv2.TM_SQDIFF_NORMED]
-        best_match_value = 0
-
-        for method in methods:
-            result = cv2.matchTemplate(region_resized, template_binary, method)
-            _, max_val, _, _ = cv2.minMaxLoc(result)
-
-            # 对于TM_SQDIFF_NORMED方法，越小越好，需要转换
-            if method == cv2.TM_SQDIFF_NORMED:
-                max_val = 1 - max_val
-
-            if max_val > best_match_value:
-                best_match_value = max_val
-
-        max_val = best_match_value
+        result = {
+            "is_match": is_match,
+            "max_corr": float(best_max_corr),
+            "target_range": (x1, y1, x2, y2),  # 返回坐标范围
+            "center_point": (int((x1 + x2) / 2), int((y1 + y2) / 2))  # 顺便返回中心点以便点击
+        }
 
         if debug:
-            print(f"匹配相似度: {max_val}")
-            print(f"阈值: {threshold}")
+            print(f"匹配度: {best_max_corr:.4f}, 范围: ({x1}, {y1}) -> ({x2}, {y2})")
 
-        # 判断是否匹配
-        is_match = max_val >= threshold
+        return result
+
+#摇杆移动
+class JoystickController:
+    """
+    【修正版 - 秒级单位】带随机扰动的拟人化摇杆控制器
+    - 输入时间单位改为“秒” (float)
+    - 移除了角度抖动 (保证走路不画蛇形)
+    - 保留了触点漂移 (起点不固定)
+    - 保留了力度浮动 (拖动距离微调)
+    """
+
+    def __init__(self, connector, center_x: int, center_y: int, radius: int, device_id=None):
+        self.connector = connector
+        self.cx = center_x
+        self.cy = center_y
+        self.radius = radius
+        self.device_id = device_id
+
+    def _get_random_start_point(self, range_limit=15):
+        """获取圆心附近的随机起始点 (高斯分布模拟人手误差)"""
+        offset_x = int(random.gauss(0, range_limit))
+        offset_y = int(random.gauss(0, range_limit))
+        # 限制最大偏移量，防止偏离太远
+        offset_x = max(min(offset_x, range_limit * 2), -range_limit * 2)
+        offset_y = max(min(offset_y, range_limit * 2), -range_limit * 2)
+        return self.cx + offset_x, self.cy + offset_y
+
+    def move(self, direction: str, duration: float = 1.0, debug=False):
+        """
+        params:
+            direction: 'w', 'a', 's', 'd' 及其组合
+            duration: 持续时间 (单位：秒)，例如 0.5 或 2.5
+        """
+        direction = direction.lower()
+        if not direction: return
+        print(f"移动: {direction} | 持续时间: {duration}s")
+
+        # --- 1. 基础方向向量 ---
+        dx, dy = 0, 0
+        if 'w' in direction: dy -= 1  # 上
+        if 's' in direction: dy += 1  # 下
+        if 'a' in direction: dx -= 1  # 左
+        if 'd' in direction: dx += 1  # 右
+
+        if dx == 0 and dy == 0: return
+
+        # 计算标准移动角度
+        move_angle = math.atan2(dy, dx)
+
+        # --- 2. 随机化处理 ---
+
+        # A. 触点漂移
+        # 获取一个随机的起始点，而不是永远从圆心开始
+        start_x, start_y = self._get_random_start_point(range_limit=10)
+
+        # B. 力度/半径浮动
+        # 半径在 95% ~ 105% 之间浮动，模拟手指拉动距离的微小变化
+        radius_multiplier = random.uniform(0.95, 1.05)
+        current_radius = self.radius * radius_multiplier
+
+        # --- 3. 计算终点 ---
+        # 基于【随机后的起点】计算终点，而不是基于【圆心】
+        # 这样生成的滑动轨迹是【完全平行的直线】，不会导致方向偏转
+        target_x = start_x + current_radius * math.cos(move_angle)
+        target_y = start_y + current_radius * math.sin(move_angle)
+
+        # C. 时间转换与浮动 (秒 -> 毫秒)
+        # 将秒转换为毫秒，并添加 +/- 30ms 的随机波动
+        base_ms = int(duration * 1000)
+        actual_duration_ms = base_ms + random.randint(-30, 30)
+
+        # 确保时间不为负数，且至少有 50ms
+        actual_duration_ms = max(50, actual_duration_ms)
+
         if debug:
-            print(f"匹配结果: {is_match}")
-        return {"is_match": is_match, "max_val": max_val}
+            print(f"移动: {direction} | 设定: {duration}s | 实际指令: {actual_duration_ms}ms")
+
+        # --- 4. 执行滑动 ---
+        # 转换为整数坐标
+        sx, sy = int(start_x), int(start_y)
+        ex, ey = int(target_x), int(target_y)
+
+        self.connector.swipe_screen(
+            sx, sy,
+            ex, ey,
+            actual_duration_ms,
+            self.device_id
+        )
+
 
 
 def get_adb_connector(adb_path: str = None) -> ADBConnector:
@@ -443,39 +516,41 @@ def list_devices(connector):
     return devices
 
 
-def execute_screenshot_and_match(device_id, connector, template_path, region_xy=None, debug=False):
+def execute_screenshot_and_match(device_id, connector, template_path, debug=False):
     """
-    执行截图和模板匹配的完整流程
+    执行全屏匹配并返回坐标范围
     """
-    if debug:
-        print(f"\n正在对设备 {device_id} 进行截图...")
-
-    # 获取屏幕截图的原始数据
     raw_data = connector.get_screen_raw(device_id)
     if not raw_data:
-        print("获取屏幕截图原始数据失败！")
-        return
+        return None
 
-    if debug:
-        print(f"获取到屏幕截图原始数据，大小: {len(raw_data)} 字节")
+    result = connector.compare_region_with_template(raw_data, template_path, debug=debug)
 
-    # 截取指定区域
-    x1, y1, x2, y2 = region_xy
-    region_data = connector.get_screen_region(x1, y1, x2, y2, device_id)
-    if not region_data:
-        print("截取指定区域失败！")
-        return
-
-    if debug:
-        print(f"获取到指定区域截图，大小: {len(region_data)} 字节")
-
-    # 模板匹配
-    result = connector.compare_region_with_template(region_data, template_path, debug=debug)
-    if debug:
-        print(f"匹配结果: {result['is_match']}, 匹配相似度: {result['max_val']}")
     if result["is_match"]:
-        return result["is_match"]
-    return False
+        # 如果匹配成功，直接返回坐标范围字典
+        return {
+            "is_match": result["is_match"],
+            "max_corr": result["max_corr"],
+            "range": result["target_range"],
+            "center": result["center_point"]
+        }
+    return {
+        "is_match": result["is_match"]
+    }
+
+
+def click(x, y, connector=None, device_id=None):
+    """
+    在指定坐标处点击
+    :param x: 点击x坐标
+    :param y: 点击y坐标
+    :param connector: ADB连接器实例，如果为None则使用新实例
+    :param device_id: 设备ID，如果为None则使用默认设备
+    """
+    if connector is None:
+        connector = ADBConnector()
+    connector.click_screen(x, y, device_id)
+    time.sleep(0.5)
 
 
 def random_click(x1, y1, x2, y2, connector=None, device_id=None):
@@ -501,7 +576,7 @@ def random_click(x1, y1, x2, y2, connector=None, device_id=None):
     # 如果没有提供连接器，则创建一个新的连接器
     if connector is None:
         connector = ADBConnector()
-    
+
     # 添加随机延迟
     time.sleep(random.uniform(0.05, 0.2))
 
@@ -544,3 +619,13 @@ def random_sleep_extended(min_time, max_time):
     sleep_time = random.uniform(min_time, max_time)
     time.sleep(sleep_time)
     print(f"等待 {sleep_time:.2f} 秒")
+
+def wait_until_match(device, connector, template, timeout=30):
+    """循环检测图片直到匹配成功或超时"""
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        res = execute_screenshot_and_match(device, connector, template, debug=False)
+        if res['is_match']:
+            return True
+        time.sleep(2)
+    return False
