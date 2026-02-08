@@ -6,8 +6,8 @@ from utils.scripts import *
 
 # --- 配置区：集中管理坐标和模板路径 ---
 TEMPLATES = {
-    "start": "../templates/start_1.png",
-    "restart": "../templates/restart.png"
+    "start": "templates/start_1.png",
+    "restart": "templates/restart.png"
 }
 
 # 坐标配置 (x1, y1)
@@ -31,7 +31,7 @@ def combat_prep(connector, dev):
     print("-> 等待加载 (15s)...")
     time.sleep(15)
 
-    ult(connector, device)
+    ult(connector, dev)
     time.sleep(10)
 
 
@@ -58,6 +58,8 @@ def main():
             random_click(*RECT_RESTART, connector, dev)
             time.sleep(0.5)
             combat_prep(connector, dev)
+        else:
+            print("未检测到开始或再次挑战按钮，尝试直接进入结算监控...")
 
         # 2. 主循环
         while True:
@@ -74,7 +76,7 @@ def main():
     except Exception as e:
         print(f"错误: {e}")
     finally:
-        cv2.destroyAllWindows()
+        pass
 
 
 if __name__ == "__main__":

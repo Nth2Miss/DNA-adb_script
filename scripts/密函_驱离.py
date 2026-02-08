@@ -5,9 +5,9 @@ from utils.tools import *
 
 # --- 配置区：集中管理坐标和路径 ---
 TEMPLATES = {
-    "start": "../templates/xzmh.png",
-    "confirm": "../templates/confirm.png",
-    "restart": "../templates/restart.png"
+    "start": "templates/xzmh.png",
+    "confirm": "templates/confirm.png",
+    "restart": "templates/restart.png"
 }
 
 # 格式: (x1, y1, x2, y2)
