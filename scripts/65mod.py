@@ -32,10 +32,15 @@ def combat_prep(connector, device, joystick):
     time.sleep(15)
 
     print("-> 执行入场移动与技能...")
-    joystick.move('w', 10)
+    # joystick.move('w', 10)
+    # joystick.move('a', 10)
+    # joystick.move('w', 3)
+    # joystick.move('a', 20)
+    
+    joystick.move('w', 3.8)
     joystick.move('a', 10)
-    joystick.move('w', 3)
-    joystick.move('a', 20)
+    joystick.move('w', 8)
+    joystick.move('a', 23)
 
     fuwei(connector, device)
     time.sleep(1)

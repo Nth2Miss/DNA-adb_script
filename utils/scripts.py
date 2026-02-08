@@ -22,6 +22,11 @@ def spiral(connector, device_id, num):
         click(2330, 1020, connector, device_id)
         time.sleep(0.5)
 
+def sprint(connector, device_id):
+    print("-> 执行冲刺...")
+    click(2680, 1065, connector, device_id)
+
+
 
 def timeout(connector, device_id):
     print("-> 执行超时重试...")

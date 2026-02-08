@@ -21,10 +21,11 @@ if devices:
     print("开始移动测试...")
 
     # 向前走 2.5 秒
-    joystick.move('w', 10)
+    joystick.move('w', 3.8)
     joystick.move('a', 10)
-    joystick.move('w', 3)
-    joystick.move('a', 25)
+    joystick.move('w', 8)
+    joystick.move('a', 23)
+
 
     fuwei(connector, device_id)
 
