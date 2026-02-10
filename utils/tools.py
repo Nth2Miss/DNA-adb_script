@@ -633,7 +633,7 @@ def random_sleep(t, variation=0.1):
         sleep_time = max(sleep_time, 0.3)
 
     print(f"等待 {sleep_time:.2f} 秒")
-    smart_sleep(sleep_time)  # <--- 改用智能休眠
+    smart_sleep(sleep_time)
 
 
 def random_sleep_extended(min_time, max_time):
@@ -644,7 +644,7 @@ def random_sleep_extended(min_time, max_time):
 
     sleep_time = random.uniform(min_time, max_time)
     print(f"等待 {sleep_time:.2f} 秒")
-    smart_sleep(sleep_time)  # <--- 改用智能休眠
+    smart_sleep(sleep_time)
 
 def wait_until_match(device, connector, template, timeout=30):
     """循环检测图片直到匹配成功或超时"""

@@ -1,8 +1,9 @@
 import cv2
 import sys
 import time
-from plyer import notification  # 导入通知库
 from utils.tools import *
+import utils.notification  as notification
+
 
 # --- 配置区保持不变 ---
 TEMPLATES = {
@@ -17,14 +18,6 @@ COORDS = {
     "ult_pos": (2050, 1650)
 }
 
-def send_alert(count):
-    """发送 Windows 系统通知"""
-    notification.notify(
-        title="二重螺旋 自动化脚本提示",
-        message=f"运行次数已达到 {count} 次！",
-        app_icon=None,  # 如果有 .ico 文件可以加上路径
-        timeout=5,      # 通知显示时间（秒）
-    )
 
 def combat_prep(connector, device):
     print("-> 继续挑战...")
@@ -54,7 +47,7 @@ def main():
             # --- 判断次数并报警 ---
             if run_count == 99:
                 print("!!! 已达 99 次，发送通知 !!!")
-                send_alert(run_count)
+                notification.send_success(run_count)
             # --------------------------
 
             combat_prep(connector, dev)

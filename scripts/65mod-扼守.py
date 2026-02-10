@@ -3,6 +3,7 @@ import sys
 import time
 from utils.tools import *
 from utils.scripts import *
+import utils.notification as notification
 
 
 # --- 配置区：集中管理坐标和模板路径 ---

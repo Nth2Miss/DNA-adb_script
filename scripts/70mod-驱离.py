@@ -3,6 +3,8 @@ import sys
 import time
 from utils.tools import *
 from utils.scripts import *
+import utils.notification as notification
+
 
 # --- 配置区：集中管理坐标和模板路径 ---
 TEMPLATES = {
@@ -56,7 +58,7 @@ def main():
             res = execute_screenshot_and_match(dev, connector, TEMPLATES["restart"], debug=False)
             if res['is_match']:
                 run_count += 1
-                print(f"\n--- 第 {run_count} 轮开始 ---")
+                print(f"\n===== 第 {run_count} 次运行完成 =====")
                 random_click(*RECT_RESTART, connector, dev)
                 random_sleep(2)
                 combat_prep(connector, dev)
@@ -65,6 +67,7 @@ def main():
 
     except Exception as e:
         print(f"❌ 错误: {e}")
+        notification.send_failure(e)
     finally:
         cv2.destroyAllWindows()
 

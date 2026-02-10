@@ -2,6 +2,8 @@ import cv2
 import sys
 from utils.tools import *
 from utils.scripts import *
+import utils.notification as notification
+
 
 
 # --- 配置区：集中管理坐标和模板路径 ---
@@ -11,10 +13,9 @@ TEMPLATES = {
 }
 
 # 坐标配置 (x1, y1)
-RECT_START = (2315, 1705, 2770, 1775)
-RECT_CONFIRM = (1440, 1190, 1980, 1250)
-RECT_RESTART = (1682, 1700, 2147, 1778)
-POS_ULT = (2050, 1650)  # 大招坐标
+RECT_START = (1962, 1740)
+RECT_CONFIRM = (1465, 1220)
+RECT_RESTART = (1882, 1745)
 
 # 技能/摇杆参数
 JOYSTICK_CENTER = (450, 1440)  # 摇杆中心点
@@ -26,7 +27,7 @@ run_count = 0
 def combat_prep(connector, dev):
     """封装：确认 -> 加载 -> 开大"""
     print("-> 确认选择并进入...")
-    random_click(*RECT_CONFIRM, connector, dev)
+    click(*RECT_CONFIRM, connector, dev)
 
     print("-> 等待加载 (15s)...")
     time.sleep(15)
@@ -50,12 +51,12 @@ def main():
 
         if res_start['is_match']:
             print("✓ 检测到开始界面")
-            random_click(*RECT_START, connector, dev)
+            click(*RECT_START, connector, dev)
             time.sleep(0.5)
             combat_prep(connector, dev)
         elif res_restart['is_match']:
             print("✓ 检测到再次挑战界面")
-            random_click(*RECT_RESTART, connector, dev)
+            click(*RECT_RESTART, connector, dev)
             time.sleep(0.5)
             combat_prep(connector, dev)
         else:
@@ -66,15 +67,15 @@ def main():
             res = execute_screenshot_and_match(dev, connector, TEMPLATES["restart"], debug=False)
             if res['is_match']:
                 run_count += 1
-                print(f"\n第 {run_count} 次运行")
-                random_click(*RECT_RESTART, connector, dev)
+                print(f"\n===== 第 {run_count} 次运行完成 =====")
+                click(*RECT_RESTART, connector, dev)
                 time.sleep(0.5)
                 combat_prep(connector, dev)
 
             time.sleep(2)
 
     except Exception as e:
-        print(f"错误: {e}")
+        notification.send_failure(e)
     finally:
         pass
 
