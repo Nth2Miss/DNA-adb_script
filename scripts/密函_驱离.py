@@ -14,8 +14,8 @@ TEMPLATES = {
 # 格式: (x1, y1, x2, y2)
 COORDS = {
     "start_btn": (2400, 1740),
-    "secret_1": (1640, 930),
-    "confirm_sel": (2374, 1161),
+    "secret_1": (1425, 885),
+    "confirm_sel": (2010, 1210),
     "confirm_btn": (1330, 1650),
     "restart_btn": (1882, 1735),
     "ult_pos": (2050, 1650)
