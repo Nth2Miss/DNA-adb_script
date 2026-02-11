@@ -8,8 +8,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout, QVBoxLayout, QWidget, QApplication,
     QTableWidgetItem, QHeaderView
 )
-from PyQt6.QtGui import QFont
-
+from PyQt6.QtGui import QFont, QIcon
 # 引入 Fluent Widgets 组件
 from qfluentwidgets import (
     FluentWindow,
@@ -26,7 +25,8 @@ from qfluentwidgets import (
     ProgressBar,
     NavigationItemPosition,
     ScrollArea,
-    TableWidget
+    TableWidget,
+    LineEdit,
 )
 
 
@@ -222,6 +222,30 @@ class SettingInterface(ScrollArea):
         self.infoLayout = QVBoxLayout(self.deviceInfoCard)
         self.infoLayout.setContentsMargins(20, 20, 20, 20)
 
+        # 3. 无线模式激活卡片
+        self.wifiCard = CardWidget(self.scrollWidget)
+        self.wifiLayout = QVBoxLayout(self.wifiCard)
+        self.wifiLayout.setContentsMargins(20, 20, 20, 20)
+
+        self.wifiTitle = BodyLabel("无线模式助手", self.wifiCard)
+        self.wifiTitle.setFont(QFont("Microsoft YaHei", 12, QFont.Weight.Bold))
+
+        self.wifiTip = BodyLabel(
+            "说明：请先通过 USB 连接手机，点击下方按钮开启 5555 端口。激活后即可拔掉数据线进行无线连接。", self.wifiCard)
+        self.wifiTip.setWordWrap(True)
+        self.wifiTip.setTextColor("#666666", "#999999")
+
+        self.activeWifiBtn = PrimaryPushButton("激活当前 USB 设备的无线模式", self.wifiCard)
+        self.activeWifiBtn.setIcon(FIF.WIFI)
+        self.activeWifiBtn.clicked.connect(self.activate_tcpip)
+
+        self.wifiLayout.addWidget(self.wifiTitle)
+        self.wifiLayout.addWidget(self.wifiTip)
+        self.wifiLayout.addSpacing(10)
+        self.wifiLayout.addWidget(self.activeWifiBtn)
+
+        self.vBoxLayout.addWidget(self.wifiCard)  # 添加到主垂直布局
+
         # 卡片标题栏
         title_h_layout = QHBoxLayout()
         self.infoTitle = BodyLabel("当前设备信息", self.deviceInfoCard)
@@ -285,6 +309,39 @@ class SettingInterface(ScrollArea):
             item_val.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)  # 可选中复制
             self.infoTable.setItem(i, 1, item_val)
 
+    def activate_tcpip(self):
+        """激活选中设备的 TCP 模式"""
+        connector = ADBConnector()
+        devices = connector.list_devices()  # 获取当前连接列表
+
+        if not devices:
+            InfoBar.warning(title="未发现设备", content="请先通过 USB 连接手机", position=InfoBarPosition.TOP_RIGHT,
+                            parent=self)
+            return
+
+        # 默认尝试激活列表中的第一个设备（通常是 USB 连接的那个）
+        target_dev = devices[0]
+
+        # 为了防止用户误操作，排除掉已经是 IP 地址格式的设备
+        import re
+        if re.match(r"^\d+\.\d+\.\d+\.\d+", target_dev):
+            InfoBar.info(title="提示", content="该设备已经是无线模式", position=InfoBarPosition.TOP_RIGHT, parent=self)
+            return
+
+        success = connector.enable_tcpip(target_dev)
+
+        if success:
+            InfoBar.success(
+                title="激活成功",
+                content=f"设备 {target_dev} 已开启无线等待。现在可以拔掉数据线并在主页输入 IP 连接了。",
+                position=InfoBarPosition.TOP_RIGHT,
+                parent=self,
+                duration=5000
+            )
+        else:
+            InfoBar.error(title="激活失败", content="请检查开发者选项中是否允许 USB 调试",
+                          position=InfoBarPosition.TOP_RIGHT, parent=self)
+
 
 # ============================================
 # 5. 主页 (HomeInterface)
@@ -315,18 +372,36 @@ class HomeInterface(QWidget):
         self.titleLabel.setFont(QFont("Microsoft YaHei", 18, QFont.Weight.Bold))
         self.vBoxLayout.addWidget(self.titleLabel)
 
-        # 设备
         self.deviceCard = CardWidget(self)
-        layout_d = QHBoxLayout(self.deviceCard)
-        layout_d.setContentsMargins(16, 12, 16, 12)
-        layout_d.setSpacing(10)
+        layout_d = QVBoxLayout(self.deviceCard)  # 改为垂直布局以容纳两行
+
+        # 第一行：现有刷新和选择
+        row1 = QHBoxLayout()
         self.deviceCombo = ComboBox(self)
-        btn_d = PushButton("刷新设备", self)
-        btn_d.setIcon(FIF.SYNC)
-        btn_d.clicked.connect(self.refresh_devices)
-        layout_d.addWidget(BodyLabel("设备", self))
-        layout_d.addWidget(self.deviceCombo, 1)
-        layout_d.addWidget(btn_d)
+        self.btn_refresh = PushButton("刷新设备", self)
+        self.btn_refresh.setIcon(FIF.SYNC)
+        self.btn_refresh.clicked.connect(self.refresh_devices)
+        row1.addWidget(BodyLabel("当前设备", self))
+        row1.addWidget(self.deviceCombo, 1)
+        row1.addWidget(self.btn_refresh)
+
+        # 第二行：WiFi 连接
+
+        row2 = QHBoxLayout()
+        self.ipInput = LineEdit(self)
+        self.ipInput.setPlaceholderText("设备 IP")
+        self.ipInput.setClearButtonEnabled(True)
+
+        self.btn_wifi_connect = PushButton("无线连接", self)
+        self.btn_wifi_connect.setIcon(FIF.WIFI)
+        self.btn_wifi_connect.clicked.connect(self.connect_wifi_device)
+
+        row2.addWidget(BodyLabel("远程连接", self))
+        row2.addWidget(self.ipInput, 1)
+        row2.addWidget(self.btn_wifi_connect)
+
+        layout_d.addLayout(row1)
+        layout_d.addLayout(row2)
         self.vBoxLayout.addWidget(self.deviceCard)
 
         # 脚本
@@ -335,12 +410,12 @@ class HomeInterface(QWidget):
         layout_s.setContentsMargins(16, 12, 16, 12)
         layout_s.setSpacing(10)
         self.scriptCombo = ComboBox(self)
-        btn_s = PushButton("刷新列表", self)
-        btn_s.setIcon(FIF.FOLDER)
-        btn_s.clicked.connect(self.scan_scripts)
+        self.btn_scan_scripts = PushButton("刷新列表", self)
+        self.btn_scan_scripts.setIcon(FIF.FOLDER)
+        self.btn_scan_scripts.clicked.connect(self.scan_scripts)
         layout_s.addWidget(BodyLabel("脚本", self))
         layout_s.addWidget(self.scriptCombo, 1)
-        layout_s.addWidget(btn_s)
+        layout_s.addWidget(self.btn_scan_scripts)
         self.vBoxLayout.addWidget(self.scriptCard)
 
         # 按钮
@@ -386,6 +461,31 @@ class HomeInterface(QWidget):
                 self.deviceCombo.addItem("未找到设备")
         except:
             self.deviceCombo.addItem("ADB 异常")
+
+    def connect_wifi_device(self):
+        ip = self.ipInput.text().strip()
+        if not ip:
+            self.show_info("错误", "请输入有效的 IP 地址", True)
+            return
+
+        if not ADBConnector:
+            return
+
+        connector = ADBConnector()
+        # 如果 IP 没带端口，自动补齐 5555
+        target = ip if ":" in ip else f"{ip}:5555"
+
+        self.show_info("正在连接", f"尝试连接至 {target}...")
+
+        # 执行连接
+        success = connector.connect_device(ip)  # tools.py 已有此方法
+
+        if success:
+            self.show_info("成功", f"已连接至 {target}")
+            self.refresh_devices()
+        else:
+            self.show_info("失败", "请确保手机已开启无线调试且在同一局域网", True)
+
 
     def scan_scripts(self):
         self.scriptCombo.clear()
@@ -450,10 +550,24 @@ class HomeInterface(QWidget):
         self.show_info("结束", "任务已停止")
 
     def toggle_ui(self, running):
+        """控制 UI 控件的启用/禁用状态"""
+        # 按钮状态切换
         self.startBtn.setEnabled(not running)
         self.stopBtn.setEnabled(running)
+
+        # 1. 禁用/启用上方设备选择区域
         self.deviceCombo.setEnabled(not running)
+        self.btn_refresh.setEnabled(not running)  # 刷新设备按钮
+
+        # 2. 禁用/启用无线连接区域 (新添加的控件)
+        self.ipInput.setEnabled(not running)
+        self.btn_wifi_connect.setEnabled(not running)
+
+        # 3. 禁用/启用脚本选择区域
         self.scriptCombo.setEnabled(not running)
+        self.btn_scan_scripts.setEnabled(not running)  # 刷新列表按钮
+
+        # 4. 进度条显示控制
         if running:
             self.progressBar.show()
             self.progressBar.setRange(0, 0)
@@ -483,6 +597,7 @@ class MainWindow(FluentWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle('二重螺旋 自动化')
+        self.setWindowIcon(QIcon('assets/logo.png'))
         self.resize(900, 700)
 
         self.homeInterface = HomeInterface(self)

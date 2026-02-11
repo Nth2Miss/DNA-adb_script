@@ -1,3 +1,4 @@
+import datetime
 import cv2
 import sys
 from utils.tools import *
@@ -66,7 +67,7 @@ def main():
             res = execute_screenshot_and_match(dev, connector, TEMPLATES["restart"], debug=False)
             if res['is_match']:
                 run_count += 1
-                print(f"\n第 {run_count} 次运行")
+                print(f"\n第 {run_count} 次运行 || {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                 random_click(*RECT_RESTART, connector, dev)
                 time.sleep(0.5)
                 combat_prep(connector, dev)

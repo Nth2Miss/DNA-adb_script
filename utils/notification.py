@@ -43,7 +43,7 @@ def send_failure(error_msg="未知错误"):
 # --- 测试代码 (实际调用时可删除) ---
 if __name__ == "__main__":
     # 测试成功场景
-    send_success(10)
+    # send_success(10)
 
     # 测试失败场景
     send_failure("无法找到目标窗口句柄")

@@ -75,6 +75,7 @@ def main():
             time.sleep(2)
 
     except Exception as e:
+        print(e)
         notification.send_failure(e)
     finally:
         pass

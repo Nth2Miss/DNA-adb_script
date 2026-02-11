@@ -3,4 +3,4 @@ REM Set the path to Anaconda
 CALL "D:\anaconda3\Scripts\activate.bat" Py312
 
 REM Run the Python script
-python gui_main.py
+python launcher.pyw

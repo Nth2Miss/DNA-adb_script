@@ -8,6 +8,8 @@ import numpy as np
 from PIL import Image
 import io
 import math
+import re
+from datetime import datetime
 
 # ============================================
 # 全局运行控制
@@ -101,6 +103,19 @@ class ADBConnector:
                                     capture_output=True, text=True, timeout=30)
             return result.returncode == 0
         except subprocess.TimeoutExpired:
+            return False
+
+    def enable_tcpip(self, device_id: str, port: int = 5555) -> bool:
+        """
+        通过 USB 将设备切换到 TCP/IP 模式 (adb tcpip 5555)
+        """
+        try:
+            # 执行 adb -s [device_id] tcpip 5555
+            cmd = ["-s", device_id, "tcpip", str(port)]
+            result = self.execute_adb_command(cmd)
+            return result is not None
+        except Exception as e:
+            print(f"激活无线模式失败: {e}")
             return False
 
     def list_devices(self) -> List[str]:
@@ -646,12 +661,37 @@ def random_sleep_extended(min_time, max_time):
     print(f"等待 {sleep_time:.2f} 秒")
     smart_sleep(sleep_time)
 
-def wait_until_match(device, connector, template, timeout=30):
-    """循环检测图片直到匹配成功或超时"""
+
+class TimeoutException(Exception):
+    """自定义超时异常"""
+    pass
+
+
+def wait_until_match(device_id, connector, template_path, timeout=60, raise_err=True):
+    """
+    阻塞式等待图片出现
+    :param timeout: 最大等待时间（秒）
+    :param raise_err: 超时是否抛出异常（True=抛出异常停止脚本，False=返回None继续运行）
+    :return: 匹配结果 result 字典，如果超时且 raise_err=False 则返回 None
+    """
+    print(f"正在等待: {template_path} (超时: {timeout}s)...")
     start_time = time.time()
+
     while time.time() - start_time < timeout:
-        res = execute_screenshot_and_match(device, connector, template, debug=False)
+        # 1. 检查是否用户点了停止
+        check_running()
+
+        # 2. 尝试匹配
+        res = execute_screenshot_and_match(device_id, connector, template_path, debug=False)
+
         if res['is_match']:
-            return True
-        time.sleep(2)
-    return False
+            # 匹配成功，直接返回结果
+            return res
+
+        time.sleep(1.5)
+
+    # 4. 时间到了还没找到
+    if raise_err:
+        raise TimeoutException(f"等待超时：{timeout}秒内未找到目标 {template_path}")
+
+    return None
