@@ -13,10 +13,11 @@ TEMPLATES = {
 }
 
 # 坐标配置 (x1, y1)
-POS_START_BTN = (2400, 1740)   # 开始按钮
-POS_SELECT_CONF = (1475, 1210)   # 确认选择
-POS_RESTART_BTN = (1882, 1745)   # 再次挑战
-POS_ULT_POS = (2050, 1650)    # 开大招坐标
+COORDS = {
+    "start_btn": (2400, 1740),   # 开始按钮
+    "confirm_btn": (1475, 1210),   # 确认选择
+    "restart_btn": (1882, 1745),   # 再次挑战
+}
 
 # 技能/摇杆参数
 JOYSTICK_CENTER = (450, 1440)  # 摇杆中心点
@@ -27,7 +28,7 @@ run_count = 0
 def combat_prep(connector, device, joystick):
     """封装：确认选择 -> 进场 -> 移动 -> 开大"""
     print("-> 确认开始...")
-    click(*POS_SELECT_CONF, connector, device)
+    click(*COORDS["confirm_btn"], connector, device)
 
     print("-> 等待加载中(15s)...")
     time.sleep(15)
@@ -77,11 +78,11 @@ def main():
 
         if res_start['is_match']:
             print("-> 检测到初始界面，开始挑战...")
-            click(*POS_START_BTN, connector, dev)
+            click(*COORDS["start_btn"], connector, dev)
             combat_prep(connector, dev, joystick)
         elif res_restart['is_match']:
             print("-> 检测到再次挑战界面，直接重开...")
-            click(*POS_RESTART_BTN, connector, dev)
+            click(*COORDS["restart_btn"], connector, dev)
             time.sleep(1)
             combat_prep(connector, dev, joystick)
         else:
@@ -97,7 +98,7 @@ def main():
                 print(f"\n===== 第 {run_count} 次运行完成 =====")
 
                 # 使用预设坐标点击
-                click(*POS_RESTART_BTN, connector, dev)
+                click(*COORDS["restart_btn"], connector, dev)
 
                 time.sleep(1)  # 等待界面切换
                 combat_prep(connector, dev, joystick)

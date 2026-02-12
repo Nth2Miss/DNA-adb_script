@@ -12,10 +12,11 @@ TEMPLATES = {
 }
 
 # 坐标配置 (x1, y1)
-RECT_START = (2315, 1705, 2770, 1775)
-RECT_CONFIRM = (1440, 1190, 1980, 1250)
-RECT_RESTART = (1682, 1700, 2147, 1778)
-POS_ULT = (2050, 1650)  # 大招坐标
+COORDS = {
+    "start_btn": (2400, 1740),   # 开始按钮
+    "confirm_btn": (1475, 1210),   # 确认选择
+    "restart_btn": (1882, 1745),   # 再次挑战
+}
 
 # 技能/摇杆参数
 JOYSTICK_CENTER = (450, 1440)  # 摇杆中心点
@@ -27,7 +28,7 @@ run_count = 0
 def combat_prep(connector, dev):
     """封装：确认 -> 加载 -> 开大"""
     print("-> 确认选择并进入...")
-    random_click(*RECT_CONFIRM, connector, dev)
+    click(*COORDS["confirm_btn"], connector, dev)
 
     print("-> 等待加载 (15s)...")
     time.sleep(15)
@@ -51,12 +52,12 @@ def main():
 
         if res_start['is_match']:
             print("✓ 检测到开始界面")
-            random_click(*RECT_START, connector, dev)
+            click(*COORDS["start_btn"], connector, dev)
             time.sleep(0.5)
             combat_prep(connector, dev)
         elif res_restart['is_match']:
             print("✓ 检测到再次挑战界面")
-            random_click(*RECT_RESTART, connector, dev)
+            click(*COORDS["restart_btn"], connector, dev)
             time.sleep(0.5)
             combat_prep(connector, dev)
         else:
@@ -68,7 +69,7 @@ def main():
             if res['is_match']:
                 run_count += 1
                 print(f"\n第 {run_count} 次运行 || {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-                random_click(*RECT_RESTART, connector, dev)
+                click(*COORDS["restart_btn"], connector, dev)
                 time.sleep(0.5)
                 combat_prep(connector, dev)
 

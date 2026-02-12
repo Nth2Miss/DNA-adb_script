@@ -322,7 +322,6 @@ class SettingInterface(ScrollArea):
         # 默认尝试激活列表中的第一个设备（通常是 USB 连接的那个）
         target_dev = devices[0]
 
-        # 为了防止用户误操作，排除掉已经是 IP 地址格式的设备
         import re
         if re.match(r"^\d+\.\d+\.\d+\.\d+", target_dev):
             InfoBar.info(title="提示", content="该设备已经是无线模式", position=InfoBarPosition.TOP_RIGHT, parent=self)

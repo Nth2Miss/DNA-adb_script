@@ -5,6 +5,7 @@ from utils.tools import *
 from utils.scripts import *
 import utils.notification as notification
 
+
 # --- 配置区：集中管理坐标和模板路径 ---
 TEMPLATES = {
     "start": "templates/start_1.png",
@@ -19,10 +20,8 @@ COORDS = {
 }
 # =================================================================
 
-run_count = 0
 
-
-def combat_prep(connector, device, joystick):
+def combat_prep(connector, device):
     """封装：确认选择 -> 进场 -> 移动 -> 开大"""
     print("-> 确认开始...")
     click(*COORDS["confirm_btn"], connector, device)
@@ -31,11 +30,11 @@ def combat_prep(connector, device, joystick):
     time.sleep(15)
 
     print("-> 执行入场移动与技能...")
-
-    spiral(connector, device, 7)
-    time.sleep(1)
+    spiral(connector, device, 2)
     ult(connector, device)
     print("-> 等待结算")
+    
+    
 
 
 def main():
@@ -67,12 +66,12 @@ def main():
         if res_start:
             print("-> 检测到初始【选择密函】界面，开始流程...")
             click(*COORDS["start_btn"], connector, dev)
-            combat_prep(connector, dev, joystick)
+            combat_prep(connector, dev)
         elif res_restart:
             print("-> 检测到【再次挑战】界面，直接跳转...")
             click(*COORDS["restart_btn"], connector, dev)
             time.sleep(1)
-            combat_prep(connector, dev, joystick)
+            combat_prep(connector, dev)
         else:
             print("未检测到开始或再次挑战按钮，默认认为在战斗中，进入监控...")
 
@@ -101,7 +100,7 @@ def main():
             print("-> 重开战斗")
 
             time.sleep(1)
-            combat_prep(connector, dev, joystick)
+            combat_prep(connector, dev)
 
     except TimeoutException as e:
         error_msg = f"运行出错: {e}"

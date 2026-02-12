@@ -8,14 +8,16 @@ import utils.notification as notification
 
 # --- 配置区：集中管理坐标和模板路径 ---
 TEMPLATES = {
-    "start": "templates/start.png",
+    "start": "templates/start_1.png",
     "restart": "templates/restart.png"
 }
 
 # 坐标配置 (x1, y1)
-RECT_RESTART = (1682, 1700, 2147, 1778)
-RECT_CONFIRM = (1440, 1190, 1980, 1250)
-RECT_START = (2315, 1705, 2770, 1775)
+COORDS = {
+    "start_btn": (2400, 1740),   # 开始按钮
+    "confirm_btn": (1475, 1210),   # 确认选择
+    "restart_btn": (1882, 1745),   # 再次挑战
+}
 # =================================================================
 
 run_count = 0
@@ -24,7 +26,7 @@ run_count = 0
 def combat_prep(connector, dev):
     """封装：确认选择 -> 进场"""
     print("-> 点击确认选择...")
-    random_click(*RECT_CONFIRM, connector, dev)
+    click(*COORDS["confirm_btn"], connector, dev)
     # 根据原代码逻辑，此处不需要额外操作，直接等待下一轮检测
 
 
@@ -44,12 +46,12 @@ def main():
 
         if res_start['is_match']:
             print("✓ 检测到开始界面")
-            random_click(*RECT_START, connector, dev)
+            click(*COORDS["start_btn"], connector, dev)
             random_sleep(1)
             combat_prep(connector, dev)
         elif res_restart['is_match']:
             print("✓ 检测到再次进行界面")
-            random_click(*RECT_RESTART, connector, dev)
+            click(*COORDS["restart_btn"], connector, dev)
             random_sleep(1)
             combat_prep(connector, dev)
 
@@ -59,7 +61,7 @@ def main():
             if res['is_match']:
                 run_count += 1
                 print(f"\n===== 第 {run_count} 次运行完成 =====")
-                random_click(*RECT_RESTART, connector, dev)
+                click(*COORDS["restart_btn"], connector, dev)
                 random_sleep(2)
                 combat_prep(connector, dev)
 
