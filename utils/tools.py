@@ -8,6 +8,7 @@ import numpy as np
 from PIL import Image
 import io
 import math
+import socket
 import re
 from datetime import datetime
 
@@ -432,6 +433,36 @@ class ADBConnector:
             print(f"匹配度: {best_max_corr:.4f}, 范围: ({x1}, {y1}) -> ({x2}, {y2})")
 
         return result
+
+    def scan_wifi_devices(self) -> List[str]:
+        """
+        扫描局域网内开启了 5555 端口的设备
+        """
+        found_ips = []
+        # 获取本机局域网 IP 段 (例如 192.168.1)
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            local_ip = s.getsockname()[0]
+            s.close()
+
+            ip_prefix = '.'.join(local_ip.split('.')[:-1]) + '.'
+        except:
+            return []
+
+        # 扫描常用段 (1-254)，使用多线程或短超时
+        print(f"正在扫描网段: {ip_prefix}x")
+        for i in range(1, 255):
+            ip = ip_prefix + str(i)
+            # 简单端口检查
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(0.01)  # 极短超时以提高扫描速度
+            result = sock.connect_ex((ip, 5555))
+            if result == 0:
+                found_ips.append(ip)
+            sock.close()
+
+        return found_ips
 
 #摇杆移动
 class JoystickController:

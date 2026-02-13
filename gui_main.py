@@ -391,12 +391,17 @@ class HomeInterface(QWidget):
         self.ipInput.setPlaceholderText("设备 IP")
         self.ipInput.setClearButtonEnabled(True)
 
+        self.btn_scan_wifi = PushButton("自动扫描", self)  # 新增按钮
+        self.btn_scan_wifi.setIcon(FIF.SEARCH)
+        self.btn_scan_wifi.clicked.connect(self.auto_scan_wifi)
+
         self.btn_wifi_connect = PushButton("无线连接", self)
         self.btn_wifi_connect.setIcon(FIF.WIFI)
         self.btn_wifi_connect.clicked.connect(self.connect_wifi_device)
 
         row2.addWidget(BodyLabel("远程连接", self))
         row2.addWidget(self.ipInput, 1)
+        row2.addWidget(self.btn_scan_wifi)  # 添加到布局
         row2.addWidget(self.btn_wifi_connect)
 
         layout_d.addLayout(row1)
@@ -460,6 +465,26 @@ class HomeInterface(QWidget):
                 self.deviceCombo.addItem("未找到设备")
         except:
             self.deviceCombo.addItem("ADB 异常")
+
+    def auto_scan_wifi(self):
+        self.btn_scan_wifi.setEnabled(False)
+        self.btn_scan_wifi.setText("扫描中...")
+        self.show_info("扫描", "正在搜索局域网内的安卓设备...")
+
+        self.scan_worker = ScanWifiWorker()
+        self.scan_worker.scan_finished.connect(self.on_wifi_scan_finished)
+        self.scan_worker.start()
+
+    def on_wifi_scan_finished(self, ips):
+        self.btn_scan_wifi.setEnabled(True)
+        self.btn_scan_wifi.setText("自动扫描")
+
+        if not ips:
+            self.show_info("扫描完成", "未发现开启 5555 端口的设备", True)
+        else:
+            # 如果只发现一个，直接填入；如果多个，填入第一个并提示
+            self.ipInput.setText(ips[0])
+            self.show_info("扫描成功", f"找到 {len(ips)} 个设备，已填入: {ips[0]}")
 
     def connect_wifi_device(self):
         ip = self.ipInput.text().strip()
@@ -606,6 +631,14 @@ class MainWindow(FluentWindow):
         self.settingInterface = SettingInterface(self)
         self.addSubInterface(self.settingInterface, FIF.SETTING, '设置', NavigationItemPosition.BOTTOM)
 
+
+class ScanWifiWorker(QThread):
+    scan_finished = pyqtSignal(list)
+
+    def run(self):
+        connector = ADBConnector()
+        ips = connector.scan_wifi_devices()
+        self.scan_finished.emit(ips)
 
 if __name__ == '__main__':
     if hasattr(Qt.HighDpiScaleFactorRoundingPolicy, 'PassThrough'):
