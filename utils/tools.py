@@ -456,7 +456,7 @@ class ADBConnector:
             ip = ip_prefix + str(i)
             # 简单端口检查
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(0.01)  # 极短超时以提高扫描速度
+            sock.settimeout(0.03)  # 极短超时以提高扫描速度
             result = sock.connect_ex((ip, 5555))
             if result == 0:
                 found_ips.append(ip)
@@ -467,7 +467,7 @@ class ADBConnector:
 #摇杆移动
 class JoystickController:
     """
-    【修正版 - 秒级单位】带随机扰动的拟人化摇杆控制器
+    带随机扰动的拟人化摇杆控制器
     - 输入时间单位改为“秒” (float)
     - 移除了角度抖动 (保证走路不画蛇形)
     - 保留了触点漂移 (起点不固定)

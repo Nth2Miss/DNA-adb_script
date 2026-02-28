@@ -3,6 +3,7 @@ import time
 import importlib.util
 import os
 import subprocess
+import json
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject
 from PyQt6.QtWidgets import (
     QHBoxLayout, QVBoxLayout, QWidget, QApplication,
@@ -217,12 +218,8 @@ class SettingInterface(ScrollArea):
         self.titleLabel.setFont(QFont("Microsoft YaHei", 18, QFont.Weight.Bold))
         self.vBoxLayout.addWidget(self.titleLabel)
 
-        # 2. 设备信息卡片
-        self.deviceInfoCard = CardWidget(self.scrollWidget)
-        self.infoLayout = QVBoxLayout(self.deviceInfoCard)
-        self.infoLayout.setContentsMargins(20, 20, 20, 20)
 
-        # 3. 无线模式激活卡片
+        # 2. 无线模式激活卡片
         self.wifiCard = CardWidget(self.scrollWidget)
         self.wifiLayout = QVBoxLayout(self.wifiCard)
         self.wifiLayout.setContentsMargins(20, 20, 20, 20)
@@ -239,12 +236,24 @@ class SettingInterface(ScrollArea):
         self.activeWifiBtn.setIcon(FIF.WIFI)
         self.activeWifiBtn.clicked.connect(self.activate_tcpip)
 
+        self.scrcpyBtn = PrimaryPushButton("启动Scrcpy", self.wifiCard)
+        self.scrcpyBtn.setIcon(FIF.GAME)
+        self.scrcpyBtn.clicked.connect(self.start_scrcpy)
+
+
         self.wifiLayout.addWidget(self.wifiTitle)
         self.wifiLayout.addWidget(self.wifiTip)
         self.wifiLayout.addSpacing(10)
         self.wifiLayout.addWidget(self.activeWifiBtn)
+        self.wifiLayout.addSpacing(10)
+        self.wifiLayout.addWidget(self.scrcpyBtn)
 
-        self.vBoxLayout.addWidget(self.wifiCard)  # 添加到主垂直布局
+        self.vBoxLayout.addWidget(self.wifiCard)
+
+        # 3. 设备信息卡片
+        self.deviceInfoCard = CardWidget(self.scrollWidget)
+        self.infoLayout = QVBoxLayout(self.deviceInfoCard)
+        self.infoLayout.setContentsMargins(20, 20, 20, 20)
 
         # 卡片标题栏
         title_h_layout = QHBoxLayout()
@@ -341,6 +350,28 @@ class SettingInterface(ScrollArea):
             InfoBar.error(title="激活失败", content="请检查开发者选项中是否允许 USB 调试",
                           position=InfoBarPosition.TOP_RIGHT, parent=self)
 
+    def start_scrcpy(self):
+        # 定义 scrcpy 的绝对路径
+        scrcpy_path = r"scrcpy-win64-v3.3.3\scrcpy.exe"
+
+        # 检查文件是否存在，防止路径错误导致程序崩溃
+        if not os.path.exists(scrcpy_path):
+            print(f"错误: 找不到文件 {scrcpy_path}")
+            return
+
+        try:
+            # 使用 Popen 启动程序
+            # cwd 参数设置工作目录，这能确保 scrcpy 找到它自带的 adb 依赖
+            subprocess.Popen(
+                [scrcpy_path],
+                cwd=os.path.dirname(scrcpy_path),
+                creationflags=subprocess.CREATE_NO_WINDOW  # 如果不想弹出额外的 cmd 黑窗口可以加上这行
+            )
+            print("Scrcpy 已启动")
+        except Exception as e:
+            print(f"启动失败: {e}")
+
+
 
 # ============================================
 # 5. 主页 (HomeInterface)
@@ -348,12 +379,14 @@ class SettingInterface(ScrollArea):
 class HomeInterface(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent=parent)
+        self.config_file = os.path.join(PROJECT_ROOT, "config.json")  # 定义配置文件路径
         self.setObjectName('homeInterface')
         self.worker = None
         self.original_stdout = sys.stdout
         self.script_map = {}
 
         self.init_ui()
+        self.load_config()
 
         self.emitting_stream = EmittingStream()
         self.emitting_stream.textWritten.connect(self.on_log_received)
@@ -450,6 +483,26 @@ class HomeInterface(QWidget):
 
         self.clearBtn.clicked.connect(self.logText.clear)
 
+    def load_config(self):
+        """从文件加载上次保存的 IP"""
+        if os.path.exists(self.config_file):
+            try:
+                with open(self.config_file, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    last_ip = config.get("last_ip", "")
+                    self.ipInput.setText(last_ip)  # 自动填入上次的 IP
+            except Exception as e:
+                print(f"读取配置失败: {e}")
+
+    def save_config(self):
+        """保存当前输入的 IP 到文件"""
+        config = {"last_ip": self.ipInput.text().strip()}
+        try:
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                json.dump(config, f)
+        except Exception as e:
+            print(f"保存配置失败: {e}")
+
     def refresh_devices(self):
         self.deviceCombo.clear()
         if not ADBConnector:
@@ -484,6 +537,7 @@ class HomeInterface(QWidget):
         else:
             # 如果只发现一个，直接填入；如果多个，填入第一个并提示
             self.ipInput.setText(ips[0])
+            self.save_config()  # 自动扫描到设备后也记录下来
             self.show_info("扫描成功", f"找到 {len(ips)} 个设备，已填入: {ips[0]}")
 
     def connect_wifi_device(self):
@@ -506,6 +560,7 @@ class HomeInterface(QWidget):
 
         if success:
             self.show_info("成功", f"已连接至 {target}")
+            self.save_config()  # 连接成功后记住该 IP
             self.refresh_devices()
         else:
             self.show_info("失败", "请确保手机已开启无线调试且在同一局域网", True)
@@ -609,6 +664,7 @@ class HomeInterface(QWidget):
         func(title=title, content=content, position=InfoBarPosition.TOP_RIGHT, parent=self, duration=2000)
 
     def closeEvent(self, event):
+        self.save_config()  # 关闭前最后记一次输入框内容
         sys.stdout = self.original_stdout
         if self.worker: self.worker.stop()
         super().closeEvent(event)
