@@ -396,122 +396,115 @@ class OtherSettingInterface(ScrollArea):
         self.vBoxLayout.setContentsMargins(30, 30, 30, 30)
         self.vBoxLayout.setSpacing(20)
 
+        # 1. 页面标题
         self.titleLabel = SubtitleLabel('其他设置', self.scrollWidget)
         self.titleLabel.setFont(QFont("Microsoft YaHei", 18, QFont.Weight.Bold))
         self.vBoxLayout.addWidget(self.titleLabel)
 
         # ----------------------------------------
-        # 1. 委托手册设置卡片
+        # 2. 委托手册设置卡片 (优化布局)
         # ----------------------------------------
-        self.commissionCard = CardWidget(self.scrollWidget)
-        self.commissionLayout = QHBoxLayout(self.commissionCard)
-        self.commissionLayout.setContentsMargins(16, 12, 16, 12)
-        self.commissionLayout.setSpacing(10)
+        from qfluentwidgets import SettingCard
 
-        self.commissionLayout.addWidget(BodyLabel("委托手册倍率", self.commissionCard))
+        self.commissionCard = SettingCard(
+            FIF.DICTIONARY,
+            "委托手册倍率",
+            "设置脚本运行过程中委托手册的使用倍率",
+            self.scrollWidget
+        )
         self.multiplierCombo = ComboBox(self.commissionCard)
         self.multiplierCombo.addItems(["不使用", "100%", "200%", "800%", "2000%"])
+        self.multiplierCombo.setFixedWidth(120)
 
         if APP_CONFIG:
             self.multiplierCombo.setCurrentText(APP_CONFIG.get("multiplier", "不使用"))
-        self.multiplierCombo.currentTextChanged.connect(
-            lambda text: APP_CONFIG.set("multiplier", text) if APP_CONFIG else None)
 
-        self.commissionLayout.addWidget(self.multiplierCombo, 1)
+        self.multiplierCombo.currentTextChanged.connect(
+            lambda text: APP_CONFIG.set("multiplier", text) if APP_CONFIG else None
+        )
+
+        self.commissionCard.hBoxLayout.addStretch(1)
+        self.commissionCard.hBoxLayout.addWidget(self.multiplierCombo)
+        self.commissionCard.hBoxLayout.addSpacing(15)
+
         self.vBoxLayout.addWidget(self.commissionCard)
 
         # ----------------------------------------
-        # 2. 邮件通知设置卡片
+        # 3. 邮件通知设置卡片 (ExpandSettingCard)
         # ----------------------------------------
-        self.emailCard = CardWidget(self.scrollWidget)
-        self.emailLayout = QVBoxLayout(self.emailCard)
-        self.emailLayout.setContentsMargins(20, 20, 20, 20)
-        self.emailLayout.setSpacing(15)
+        from qfluentwidgets import ExpandSettingCard
 
-        # 开关行
-        switchLayout = QHBoxLayout()
-        self.emailTitle = BodyLabel("任务完成/异常 邮件通知", self.emailCard)
-        self.emailSwitch = SwitchButton(self.emailCard)
+        self.emailCard = ExpandSettingCard(
+            FIF.MAIL,
+            "邮件通知",
+            "设置 SMTP 服务以接收自动化脚本运行结果的实时通知",
+            self.scrollWidget
+        )
+
+        self.emailSwitch = SwitchButton()
         self.emailSwitch.setOnText("已开启")
         self.emailSwitch.setOffText("已关闭")
-        switchLayout.addWidget(self.emailTitle)
-        switchLayout.addStretch(1)
-        switchLayout.addWidget(self.emailSwitch)
-        self.emailLayout.addLayout(switchLayout)
+        if APP_CONFIG:
+            self.emailSwitch.setChecked(APP_CONFIG.get("email_enabled", False))
 
-        # 配置参数区域 (使用一个 Widget 包裹方便整体隐藏/禁用)
-        self.emailConfigWidget = QWidget(self.emailCard)
+        self.emailSwitch.checkedChanged.connect(
+            lambda checked: APP_CONFIG.set("email_enabled", checked) if APP_CONFIG else None
+        )
+
+        # ExpandSettingCard 的组件默认会有一定的右侧间距，
+        # 如果觉得开关也太贴边，可以在这里也加一个容器或者 Spacer
+        self.emailCard.addWidget(self.emailSwitch)
+
+        # 邮件配置内部视图
+        self.emailConfigWidget = QWidget()
         self.configLayout = QVBoxLayout(self.emailConfigWidget)
-        self.configLayout.setContentsMargins(0, 0, 0, 0)
+        self.configLayout.setContentsMargins(20, 10, 20, 20)
+        self.configLayout.setSpacing(15)
 
-        # 参数输入框
-        def create_input_row(label_text, widget, key, default_val=""):
+        def add_row(label, key, widget, default=""):
             row = QHBoxLayout()
-            row.addWidget(BodyLabel(label_text, self.emailConfigWidget), 0)
-            widget.setText(APP_CONFIG.get(key, default_val) if APP_CONFIG else default_val)
-            widget.textChanged.connect(lambda text, k=key: APP_CONFIG.set(k, text) if APP_CONFIG else None)
+            row.addWidget(BodyLabel(label))
+            val = APP_CONFIG.get(key, default) if APP_CONFIG else default
+            widget.setText(val)
+            widget.textChanged.connect(lambda t: APP_CONFIG.set(key, t) if APP_CONFIG else None)
             row.addWidget(widget, 1)
             self.configLayout.addLayout(row)
             return widget
 
-        self.smtpInput = create_input_row("SMTP 服务器:", LineEdit(), "email_smtp", "smtp.qq.com")
-        self.portInput = create_input_row("SMTP 端口号:", LineEdit(), "email_port", "465")
-        self.senderInput = create_input_row("发件人邮箱:", LineEdit(), "email_sender")
+        self.smtpInput = add_row("SMTP 服务器:", "email_smtp", LineEdit(), "smtp.qq.com")
+        self.portInput = add_row("SMTP 端口号:", "email_port", LineEdit(), "465")
+        self.senderInput = add_row("发件人邮箱:", "email_sender", LineEdit())
+        self.pwdInput = PasswordLineEdit()
+        self.pwdInput.setPlaceholderText("填入邮箱授权码")
+        add_row("邮箱授权码:", "email_pwd", self.pwdInput)
+        self.receiverInput = add_row("收件人邮箱:", "email_receiver", LineEdit())
 
-        pwdInputBox = PasswordLineEdit()
-        pwdInputBox.setPlaceholderText("填入邮箱授权码 (非登录密码)")
-        self.pwdInput = create_input_row("邮箱授权码:", pwdInputBox, "email_pwd")
-
-        self.receiverInput = create_input_row("收件人邮箱:", LineEdit(), "email_receiver")
-
-        # 测试发送按钮
-        self.testMailBtn = PushButton("发送测试邮件", self.emailConfigWidget)
+        self.testMailBtn = PushButton("发送测试邮件")
         self.testMailBtn.setIcon(FIF.MAIL)
         self.testMailBtn.clicked.connect(self.test_send_mail)
         self.configLayout.addWidget(self.testMailBtn, 0, Qt.AlignmentFlag.AlignRight)
 
-        self.emailLayout.addWidget(self.emailConfigWidget)
+        self.emailCard.viewLayout.addWidget(self.emailConfigWidget)
         self.vBoxLayout.addWidget(self.emailCard)
+
         self.vBoxLayout.addStretch(1)
-
-        # 初始化状态并绑定开关事件
-        if APP_CONFIG:
-            is_enabled = APP_CONFIG.get("email_enabled", False)
-            self.emailSwitch.setChecked(is_enabled)
-            self.emailConfigWidget.setVisible(is_enabled)
-
-        self.emailSwitch.checkedChanged.connect(self.on_email_switch_changed)
-
-    def on_email_switch_changed(self, is_checked):
-        if APP_CONFIG:
-            APP_CONFIG.set("email_enabled", is_checked)
-        self.emailConfigWidget.setVisible(is_checked)  # 开启时显示下方配置，关闭时折叠隐藏
 
     def test_send_mail(self):
         self.testMailBtn.setEnabled(False)
         self.testMailBtn.setText("发送中...")
-
         import threading
-        # 将导入放在线程外，确保 except 块能识别这些类
         from PyQt6.QtCore import QMetaObject, Qt, Q_ARG
 
         def worker():
             try:
                 from utils.notification import send_notification
-                result = send_notification("二重螺旋 自动化 - 测试邮件",
-                                           "这是一封测试邮件，如果您收到此邮件，说明配置完全正确！")
-
-                # 即使返回了 None，我们也给个默认值防止解包失败
-                success, msg = result if result else (False, "函数未返回有效状态")
-
+                result = send_notification("二重螺旋 自动化 - 测试邮件", "测试成功！")
+                success, msg = result if result else (False, "无返回结果")
                 QMetaObject.invokeMethod(self, "show_msg", Qt.ConnectionType.QueuedConnection,
-                                         Q_ARG(str, "success" if success else "error"),
-                                         Q_ARG(str, msg))
+                                         Q_ARG(str, "success" if success else "error"), Q_ARG(str, msg))
             except Exception as e:
-                # 此时 QMetaObject 肯定已经存在了
                 QMetaObject.invokeMethod(self, "show_msg", Qt.ConnectionType.QueuedConnection,
-                                         Q_ARG(str, "error"),
-                                         Q_ARG(str, f"程序异常: {str(e)}"))
+                                         Q_ARG(str, "error"), Q_ARG(str, str(e)))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -522,8 +515,7 @@ class OtherSettingInterface(ScrollArea):
         if type_str == "success":
             InfoBar.success("成功", msg, position=InfoBarPosition.TOP_RIGHT, parent=self)
         else:
-            InfoBar.error("失败", msg, position=InfoBarPosition.TOP_RIGHT, parent=self, duration=5000)
-
+            InfoBar.error("失败", msg, position=InfoBarPosition.TOP_RIGHT, parent=self)
 
 # ============================================
 # 5. 主页 (HomeInterface)
@@ -825,7 +817,7 @@ class MainWindow(FluentWindow):
         # 2.其他设置页面
         self.otherSettingInterface = OtherSettingInterface(self)
         self.otherSettingInterface.setObjectName('otherSettingInterface')
-        self.addSubInterface(self.otherSettingInterface, FIF.DOCUMENT, '其他设置')
+        self.addSubInterface(self.otherSettingInterface, FIF.SETTING, '其他设置')
 
         # 3. 基础设置页面
         self.settingInterface = SettingInterface(self)
