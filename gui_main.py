@@ -4,7 +4,7 @@ import importlib.util
 import os
 import subprocess
 import json
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject, pyqtSlot
 from PyQt6.QtWidgets import (
     QHBoxLayout, QVBoxLayout, QWidget, QApplication,
     QTableWidgetItem, QHeaderView
@@ -28,6 +28,8 @@ from qfluentwidgets import (
     ScrollArea,
     TableWidget,
     LineEdit,
+    SwitchButton,
+    PasswordLineEdit
 )
 
 
@@ -56,6 +58,11 @@ if PROJECT_ROOT not in sys.path:
 try:
     import utils.tools
     from utils.tools import ADBConnector, set_running_state, StopScriptException
+
+    # === 全局初始化配置管理器 ===
+    config_file_path = os.path.join(PROJECT_ROOT, "config.json")
+    APP_CONFIG = utils.tools.ConfigManager(config_file_path)
+    # =================================
 except ImportError as e:
     print(f"导入错误: {e}")
     ADBConnector = None
@@ -372,6 +379,151 @@ class SettingInterface(ScrollArea):
             print(f"启动失败: {e}")
 
 
+# ============================================
+# 其他设置页面 (OtherSettingInterface)
+# ============================================
+class OtherSettingInterface(ScrollArea):
+    def __init__(self, parent=None):
+        super().__init__(parent=parent)
+        self.setObjectName('otherSettingInterface')
+        self.scrollWidget = QWidget()
+        self.vBoxLayout = QVBoxLayout(self.scrollWidget)
+
+        self.setWidget(self.scrollWidget)
+        self.setWidgetResizable(True)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        self.vBoxLayout.setContentsMargins(30, 30, 30, 30)
+        self.vBoxLayout.setSpacing(20)
+
+        self.titleLabel = SubtitleLabel('其他设置', self.scrollWidget)
+        self.titleLabel.setFont(QFont("Microsoft YaHei", 18, QFont.Weight.Bold))
+        self.vBoxLayout.addWidget(self.titleLabel)
+
+        # ----------------------------------------
+        # 1. 委托手册设置卡片
+        # ----------------------------------------
+        self.commissionCard = CardWidget(self.scrollWidget)
+        self.commissionLayout = QHBoxLayout(self.commissionCard)
+        self.commissionLayout.setContentsMargins(16, 12, 16, 12)
+        self.commissionLayout.setSpacing(10)
+
+        self.commissionLayout.addWidget(BodyLabel("委托手册倍率", self.commissionCard))
+        self.multiplierCombo = ComboBox(self.commissionCard)
+        self.multiplierCombo.addItems(["不使用", "100%", "200%", "800%", "2000%"])
+
+        if APP_CONFIG:
+            self.multiplierCombo.setCurrentText(APP_CONFIG.get("multiplier", "不使用"))
+        self.multiplierCombo.currentTextChanged.connect(
+            lambda text: APP_CONFIG.set("multiplier", text) if APP_CONFIG else None)
+
+        self.commissionLayout.addWidget(self.multiplierCombo, 1)
+        self.vBoxLayout.addWidget(self.commissionCard)
+
+        # ----------------------------------------
+        # 2. 邮件通知设置卡片
+        # ----------------------------------------
+        self.emailCard = CardWidget(self.scrollWidget)
+        self.emailLayout = QVBoxLayout(self.emailCard)
+        self.emailLayout.setContentsMargins(20, 20, 20, 20)
+        self.emailLayout.setSpacing(15)
+
+        # 开关行
+        switchLayout = QHBoxLayout()
+        self.emailTitle = BodyLabel("任务完成/异常 邮件通知", self.emailCard)
+        self.emailSwitch = SwitchButton(self.emailCard)
+        self.emailSwitch.setOnText("已开启")
+        self.emailSwitch.setOffText("已关闭")
+        switchLayout.addWidget(self.emailTitle)
+        switchLayout.addStretch(1)
+        switchLayout.addWidget(self.emailSwitch)
+        self.emailLayout.addLayout(switchLayout)
+
+        # 配置参数区域 (使用一个 Widget 包裹方便整体隐藏/禁用)
+        self.emailConfigWidget = QWidget(self.emailCard)
+        self.configLayout = QVBoxLayout(self.emailConfigWidget)
+        self.configLayout.setContentsMargins(0, 0, 0, 0)
+
+        # 参数输入框
+        def create_input_row(label_text, widget, key, default_val=""):
+            row = QHBoxLayout()
+            row.addWidget(BodyLabel(label_text, self.emailConfigWidget), 0)
+            widget.setText(APP_CONFIG.get(key, default_val) if APP_CONFIG else default_val)
+            widget.textChanged.connect(lambda text, k=key: APP_CONFIG.set(k, text) if APP_CONFIG else None)
+            row.addWidget(widget, 1)
+            self.configLayout.addLayout(row)
+            return widget
+
+        self.smtpInput = create_input_row("SMTP 服务器:", LineEdit(), "email_smtp", "smtp.qq.com")
+        self.portInput = create_input_row("SMTP 端口号:", LineEdit(), "email_port", "465")
+        self.senderInput = create_input_row("发件人邮箱:", LineEdit(), "email_sender")
+
+        pwdInputBox = PasswordLineEdit()
+        pwdInputBox.setPlaceholderText("填入邮箱授权码 (非登录密码)")
+        self.pwdInput = create_input_row("邮箱授权码:", pwdInputBox, "email_pwd")
+
+        self.receiverInput = create_input_row("收件人邮箱:", LineEdit(), "email_receiver")
+
+        # 测试发送按钮
+        self.testMailBtn = PushButton("发送测试邮件", self.emailConfigWidget)
+        self.testMailBtn.setIcon(FIF.MAIL)
+        self.testMailBtn.clicked.connect(self.test_send_mail)
+        self.configLayout.addWidget(self.testMailBtn, 0, Qt.AlignmentFlag.AlignRight)
+
+        self.emailLayout.addWidget(self.emailConfigWidget)
+        self.vBoxLayout.addWidget(self.emailCard)
+        self.vBoxLayout.addStretch(1)
+
+        # 初始化状态并绑定开关事件
+        if APP_CONFIG:
+            is_enabled = APP_CONFIG.get("email_enabled", False)
+            self.emailSwitch.setChecked(is_enabled)
+            self.emailConfigWidget.setVisible(is_enabled)
+
+        self.emailSwitch.checkedChanged.connect(self.on_email_switch_changed)
+
+    def on_email_switch_changed(self, is_checked):
+        if APP_CONFIG:
+            APP_CONFIG.set("email_enabled", is_checked)
+        self.emailConfigWidget.setVisible(is_checked)  # 开启时显示下方配置，关闭时折叠隐藏
+
+    def test_send_mail(self):
+        self.testMailBtn.setEnabled(False)
+        self.testMailBtn.setText("发送中...")
+
+        import threading
+        # 将导入放在线程外，确保 except 块能识别这些类
+        from PyQt6.QtCore import QMetaObject, Qt, Q_ARG
+
+        def worker():
+            try:
+                from utils.notification import send_notification
+                result = send_notification("二重螺旋 自动化 - 测试邮件",
+                                           "这是一封测试邮件，如果您收到此邮件，说明配置完全正确！")
+
+                # 即使返回了 None，我们也给个默认值防止解包失败
+                success, msg = result if result else (False, "函数未返回有效状态")
+
+                QMetaObject.invokeMethod(self, "show_msg", Qt.ConnectionType.QueuedConnection,
+                                         Q_ARG(str, "success" if success else "error"),
+                                         Q_ARG(str, msg))
+            except Exception as e:
+                # 此时 QMetaObject 肯定已经存在了
+                QMetaObject.invokeMethod(self, "show_msg", Qt.ConnectionType.QueuedConnection,
+                                         Q_ARG(str, "error"),
+                                         Q_ARG(str, f"程序异常: {str(e)}"))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    @pyqtSlot(str, str)
+    def show_msg(self, type_str, msg):
+        self.testMailBtn.setEnabled(True)
+        self.testMailBtn.setText("发送测试邮件")
+        if type_str == "success":
+            InfoBar.success("成功", msg, position=InfoBarPosition.TOP_RIGHT, parent=self)
+        else:
+            InfoBar.error("失败", msg, position=InfoBarPosition.TOP_RIGHT, parent=self, duration=5000)
+
 
 # ============================================
 # 5. 主页 (HomeInterface)
@@ -386,7 +538,6 @@ class HomeInterface(QWidget):
         self.script_map = {}
 
         self.init_ui()
-        self.load_config()
 
         self.emitting_stream = EmittingStream()
         self.emitting_stream.textWritten.connect(self.on_log_received)
@@ -423,6 +574,9 @@ class HomeInterface(QWidget):
         self.ipInput = LineEdit(self)
         self.ipInput.setPlaceholderText("设备 IP")
         self.ipInput.setClearButtonEnabled(True)
+
+        if APP_CONFIG:
+            self.ipInput.setText(APP_CONFIG.get("last_ip", ""))
 
         self.btn_scan_wifi = PushButton("自动扫描", self)  # 新增按钮
         self.btn_scan_wifi.setIcon(FIF.SEARCH)
@@ -483,26 +637,6 @@ class HomeInterface(QWidget):
 
         self.clearBtn.clicked.connect(self.logText.clear)
 
-    def load_config(self):
-        """从文件加载上次保存的 IP"""
-        if os.path.exists(self.config_file):
-            try:
-                with open(self.config_file, 'r', encoding='utf-8') as f:
-                    config = json.load(f)
-                    last_ip = config.get("last_ip", "")
-                    self.ipInput.setText(last_ip)  # 自动填入上次的 IP
-            except Exception as e:
-                print(f"读取配置失败: {e}")
-
-    def save_config(self):
-        """保存当前输入的 IP 到文件"""
-        config = {"last_ip": self.ipInput.text().strip()}
-        try:
-            with open(self.config_file, 'w', encoding='utf-8') as f:
-                json.dump(config, f)
-        except Exception as e:
-            print(f"保存配置失败: {e}")
-
     def refresh_devices(self):
         self.deviceCombo.clear()
         if not ADBConnector:
@@ -537,7 +671,8 @@ class HomeInterface(QWidget):
         else:
             # 如果只发现一个，直接填入；如果多个，填入第一个并提示
             self.ipInput.setText(ips[0])
-            self.save_config()  # 自动扫描到设备后也记录下来
+            if APP_CONFIG:
+                APP_CONFIG.set("last_ip", ips[0])
             self.show_info("扫描成功", f"找到 {len(ips)} 个设备，已填入: {ips[0]}")
 
     def connect_wifi_device(self):
@@ -560,7 +695,8 @@ class HomeInterface(QWidget):
 
         if success:
             self.show_info("成功", f"已连接至 {target}")
-            self.save_config()  # 连接成功后记住该 IP
+            if APP_CONFIG:
+                APP_CONFIG.set("last_ip", ip)
             self.refresh_devices()
         else:
             self.show_info("失败", "请确保手机已开启无线调试且在同一局域网", True)
@@ -664,7 +800,8 @@ class HomeInterface(QWidget):
         func(title=title, content=content, position=InfoBarPosition.TOP_RIGHT, parent=self, duration=2000)
 
     def closeEvent(self, event):
-        self.save_config()  # 关闭前最后记一次输入框内容
+        if APP_CONFIG:  # <-- 关闭前最后记一次输入框内容
+            APP_CONFIG.set("last_ip", self.ipInput.text().strip())
         sys.stdout = self.original_stdout
         if self.worker: self.worker.stop()
         super().closeEvent(event)
@@ -680,12 +817,21 @@ class MainWindow(FluentWindow):
         self.setWindowIcon(QIcon('assets/logo.png'))
         self.resize(900, 700)
 
+        # 1. 控制台主页
         self.homeInterface = HomeInterface(self)
         self.homeInterface.setObjectName('homeInterface')
         self.addSubInterface(self.homeInterface, FIF.HOME, '控制台')
 
+        # 2.其他设置页面
+        self.otherSettingInterface = OtherSettingInterface(self)
+        self.otherSettingInterface.setObjectName('otherSettingInterface')
+        self.addSubInterface(self.otherSettingInterface, FIF.DOCUMENT, '其他设置')
+
+        # 3. 基础设置页面
         self.settingInterface = SettingInterface(self)
+        self.settingInterface.setObjectName('settingInterface')
         self.addSubInterface(self.settingInterface, FIF.SETTING, '设置', NavigationItemPosition.BOTTOM)
+
 
 
 class ScanWifiWorker(QThread):

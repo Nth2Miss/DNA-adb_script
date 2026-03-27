@@ -2,6 +2,7 @@ import time
 import random
 import subprocess
 import os
+import json
 from typing import List, Optional
 import cv2
 import numpy as np
@@ -16,6 +17,18 @@ from datetime import datetime
 # 全局运行控制
 # ============================================
 _IS_RUNNING = True  # 全局运行标志
+
+# --- 全局配置 ---
+GLOBAL_CONFIG = {
+    "commission_multiplier": "不使用",
+    "last_ip": "",
+    "email_enabled": False,
+    "email_smtp": "smtp.qq.com",
+    "email_port": "465",
+    "email_sender": "",
+    "email_pwd": "",
+    "email_receiver": ""
+}
 
 class StopScriptException(Exception):
     """自定义异常，用于在停止时跳出深层循环"""
@@ -463,6 +476,65 @@ class ADBConnector:
             sock.close()
 
         return found_ips
+
+
+class ConfigManager:
+    """独立的配置文件统一管理类"""
+
+    def __init__(self, config_path):
+        self.config_path = config_path
+        # 修改默认数据结构
+        self.config_data = {
+            "last_ip": "",
+            "multiplier": "不使用",
+            "email_enabled": False,
+            "email_smtp": "smtp.qq.com",
+            "email_port": "465",
+            "email_sender": "",
+            "email_pwd": "",
+            "email_receiver": ""
+        }
+        self.load()
+
+    def load(self):
+        """从文件加载配置，并初始化到全局变量"""
+        if os.path.exists(self.config_path):
+            try:
+                with open(self.config_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    self.config_data.update(data)
+            except Exception as e:
+                print(f"读取配置失败: {e}")
+
+        # 将读取到的配置同步到脚本可访问的 GLOBAL_CONFIG 中
+        GLOBAL_CONFIG["commission_multiplier"] = self.config_data.get("multiplier", "不使用")
+        GLOBAL_CONFIG["last_ip"] = self.config_data.get("last_ip", "")
+
+        # --- 同步邮件配置 ---
+        for key in ["email_enabled", "email_smtp", "email_port", "email_sender", "email_pwd", "email_receiver"]:
+            GLOBAL_CONFIG[key] = self.config_data.get(key)
+
+    def save(self):
+        """将当前配置保存到本地文件"""
+        try:
+            with open(self.config_path, 'w', encoding='utf-8') as f:
+                json.dump(self.config_data, f, ensure_ascii=False, indent=4)
+        except Exception as e:
+            print(f"保存配置失败: {e}")
+
+    def get(self, key, default=None):
+        return self.config_data.get(key, default)
+
+    def set(self, key, value):
+        """修改配置项，自动同步到全局变量并存盘"""
+        self.config_data[key] = value
+
+        if key == "multiplier":
+            GLOBAL_CONFIG["commission_multiplier"] = value
+        else:
+            GLOBAL_CONFIG[key] = value  # 涵盖 last_ip 及所有 email_xxx 参数
+
+        self.save()
 
 #摇杆移动
 class JoystickController:

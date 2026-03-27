@@ -1,5 +1,28 @@
 from utils.tools import *
 
+def select_commission_multiplier(connector, device_id):
+    """
+    读取全局配置并点击对应的委托手册倍率
+    """
+
+    # 获取用户在 GUI 中选择的倍率
+    multiplier = GLOBAL_CONFIG.get("commission_multiplier", "不使用")
+
+    # === 委托手册倍率坐标 ===
+    MULTIPLIER_COORDS = {
+        "100%": (1080, 1020),
+        "200%": (1400, 1020),
+        "800%": (1720, 1020),
+        "2000%": (2030, 1020)
+    }
+    # =========================================================
+
+    if multiplier != "不使用" and multiplier in MULTIPLIER_COORDS:
+        print(f"-> 正在选择委托手册倍率: {multiplier}")
+        time.sleep(1)  # 等待倍率选项弹出的动画时间
+        click(*MULTIPLIER_COORDS[multiplier], connector, device_id)
+        time.sleep(0.5)  # 点击后稍等
+
 def fuwei(connector, device_id):
     print("-> 执行角色复位...")
     # esc
@@ -25,7 +48,6 @@ def spiral(connector, device_id, num):
 def sprint(connector, device_id):
     print("-> 执行冲刺...")
     click(2680, 1065, connector, device_id)
-
 
 
 def timeout(connector, device_id):

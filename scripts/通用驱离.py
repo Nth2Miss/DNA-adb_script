@@ -27,7 +27,9 @@ run_count = 0
 
 
 def combat_prep(connector, dev):
-    """封装：确认 -> 加载 -> 开大"""
+    """封装：选择倍率 -> 确认 -> 加载 -> 开大"""
+    select_commission_multiplier(connector, dev)
+
     print("-> 确认选择并进入...")
     click(*COORDS["confirm_btn"], connector, dev)
 
