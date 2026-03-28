@@ -4,8 +4,6 @@ from utils.tools import *
 from utils.scripts import *
 import utils.notification as notification
 
-
-
 # --- 配置区：集中管理坐标和模板路径 ---
 TEMPLATES = {
     "start": "templates/start_1.png",
@@ -14,9 +12,9 @@ TEMPLATES = {
 
 # 坐标配置 (x1, y1)
 COORDS = {
-    "start_btn": (2400, 1740),   # 开始按钮
-    "confirm_btn": (1475, 1210),   # 确认选择
-    "restart_btn": (1882, 1745),   # 再次挑战
+    "start_btn": (2400, 1740),  # 开始按钮
+    "confirm_btn": (1475, 1210),  # 确认选择
+    "restart_btn": (1882, 1745),  # 再次挑战
 }
 
 # 技能/摇杆参数
@@ -50,33 +48,32 @@ def main():
 
         # 1. 初始检测分流
         print("正在检查初始状态...")
-        res_start = execute_screenshot_and_match(dev, connector, TEMPLATES["start"], debug=False)
-        res_restart = execute_screenshot_and_match(dev, connector, TEMPLATES["restart"], debug=False)
+        res_start = wait_until_match(dev, connector, TEMPLATES["start"], timeout=5, raise_err=False)
 
-        if res_start['is_match']:
+        if res_start:
             print("✓ 检测到开始界面")
             click(*COORDS["start_btn"], connector, dev)
             time.sleep(0.5)
             combat_prep(connector, dev)
-        elif res_restart['is_match']:
-            print("✓ 检测到再次挑战界面")
-            click(*COORDS["restart_btn"], connector, dev)
-            time.sleep(0.5)
-            combat_prep(connector, dev)
         else:
-            print("未检测到开始或再次挑战按钮，尝试直接进入结算监控...")
-
-        # 2. 主循环
-        while True:
-            res = execute_screenshot_and_match(dev, connector, TEMPLATES["restart"], debug=False)
-            if res['is_match']:
-                run_count += 1
-                print(f"\n===== 第 {run_count} 次运行完成 =====")
+            res_restart = wait_until_match(dev, connector, TEMPLATES["restart"], timeout=5, raise_err=False)
+            if res_restart:
+                print("✓ 检测到再次挑战界面")
                 click(*COORDS["restart_btn"], connector, dev)
                 time.sleep(0.5)
                 combat_prep(connector, dev)
+            else:
+                print("未检测到开始或再次挑战按钮，尝试直接进入结算监控...")
 
-            time.sleep(2)
+        # 2. 主循环
+        while True:
+            wait_until_match(dev, connector, TEMPLATES["restart"], timeout=300, raise_err=True)
+
+            run_count += 1
+            print(f"\n===== 第 {run_count} 次运行完成 =====")
+            click(*COORDS["restart_btn"], connector, dev)
+            time.sleep(0.5)
+            combat_prep(connector, dev)
 
     except Exception as e:
         print(e)

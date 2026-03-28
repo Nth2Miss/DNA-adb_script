@@ -134,9 +134,8 @@ class Worker(QThread):
             print(">>> 🛑 脚本已成功停止")
         except Exception as e:
             import traceback
-            if "StopScriptException" not in str(type(e)):
-                print(f"❌ 运行出错: {e}\n{traceback.format_exc()}")
-                self.error_signal.emit(str(e))
+            print(f"❌ 运行出错: {e}\n{traceback.format_exc()}")
+            self.error_signal.emit(str(e))
         finally:
             time.sleep = original_sleep
             self.finished_signal.emit()

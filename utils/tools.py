@@ -10,6 +10,7 @@ from PIL import Image
 import io
 import math
 import socket
+from concurrent.futures import ThreadPoolExecutor
 import re
 from datetime import datetime
 
@@ -452,28 +453,39 @@ class ADBConnector:
         扫描局域网内开启了 5555 端口的设备
         """
         found_ips = []
-        # 获取本机局域网 IP 段 (例如 192.168.1)
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            local_ip = s.getsockname()[0]
-            s.close()
 
+        # 1. 自动获取本机局域网 IP 段
+        try:
+            # 使用 UDP 尝试连接公网，诱导系统选择正确的网卡接口
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.connect(("8.8.8.8", 80))
+                local_ip = s.getsockname()[0]
             ip_prefix = '.'.join(local_ip.split('.')[:-1]) + '.'
-        except:
+        except Exception as e:
+            print(f"获取本地 IP 失败: {e}")
             return []
 
-        # 扫描常用段 (1-254)，使用多线程或短超时
-        print(f"正在扫描网段: {ip_prefix}x")
-        for i in range(1, 255):
-            ip = ip_prefix + str(i)
-            # 简单端口检查
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(0.03)  # 极短超时以提高扫描速度
-            result = sock.connect_ex((ip, 5555))
-            if result == 0:
-                found_ips.append(ip)
-            sock.close()
+        print(f"正在并发扫描网段: {ip_prefix}1 ~ 254 (Port: 5555)")
+
+        # 2. 定义内部探测函数
+        def check_ip(ip: str):
+            # 使用 context manager (with) 自动关闭 socket
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                # 建议设置为 0.3~0.5s，平衡速度与稳定性
+                sock.settimeout(0.5)
+                # connect_ex 成功返回 0，失败返回错误码
+                if sock.connect_ex((ip, 5555)) == 0:
+                    return ip
+            return None
+
+        # 3. 使用线程池并发执行
+        # max_workers=100 可以在 2 秒内扫完整个 C 段
+        target_ips = [f"{ip_prefix}{i}" for i in range(1, 255)]
+
+        with ThreadPoolExecutor(max_workers=100) as executor:
+            # 过滤掉返回 None 的结果
+            results = executor.map(check_ip, target_ips)
+            found_ips = [ip for ip in results if ip]
 
         return found_ips
 
