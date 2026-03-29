@@ -38,11 +38,17 @@ def ult(connector, device_id):
     print("-> 执行大招...")
     click(2050, 1650, connector, device_id)
 
+def reg(connector, device_id, show_log=True):
+    if show_log:
+        print("-> 执行技能...")
+    click(1950, 1650, connector, device_id, show_log)
+
+
 def spiral(connector, device_id, num):
     print("-> 执行螺旋操作...")
     for i in range(num):
         print(f"   螺旋第 {i + 1} 次")
-        click(2330, 1020, connector, device_id)
+        click(2330, 1020, connector, device_id, show_log)
         time.sleep(0.5)
 
 def sprint(connector, device_id):

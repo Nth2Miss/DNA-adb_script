@@ -293,6 +293,24 @@ class SettingInterface(ScrollArea):
         self.infoLayout.addSpacing(15)
         self.infoLayout.addWidget(self.infoTable)
 
+        # --- 新增：设备操作按钮组 ---
+        device_ops_layout = QHBoxLayout()
+
+        self.stopAppBtn = PushButton("终止设备应用", self.deviceInfoCard)
+        self.stopAppBtn.setIcon(FIF.CLOSE)
+        self.stopAppBtn.clicked.connect(self.stop_game_app)
+
+        self.lockScreenBtn = PushButton("锁屏/电源键", self.deviceInfoCard)
+        self.lockScreenBtn.setIcon(FIF.POWER_BUTTON)
+        self.lockScreenBtn.clicked.connect(self.lock_device_screen)
+
+        device_ops_layout.addWidget(self.stopAppBtn)
+        device_ops_layout.addWidget(self.lockScreenBtn)
+        device_ops_layout.addStretch(1)  # 靠左对齐
+
+        self.infoLayout.addSpacing(10)
+        self.infoLayout.addLayout(device_ops_layout)
+
         self.vBoxLayout.addWidget(self.deviceInfoCard)
         self.vBoxLayout.addStretch(1)
 
@@ -376,6 +394,40 @@ class SettingInterface(ScrollArea):
             print("Scrcpy 已启动")
         except Exception as e:
             print(f"启动失败: {e}")
+
+    def stop_game_app(self):
+        """强制停止游戏应用 """
+        connector = ADBConnector()
+        devices = connector.list_devices()
+        if not devices:
+            InfoBar.warning("未发现设备", "请先连接手机", position=InfoBarPosition.TOP_RIGHT, parent=self)
+            return
+
+        package_name = "com.hero.dna.gf"
+        target_dev = devices[0]
+
+        # 执行 adb shell am force-stop
+        cmd = ["shell", "am", "force-stop", package_name]
+        res = connector.execute_adb_command(cmd, target_dev)
+
+        if res is not None:
+            InfoBar.success("操作成功", f"已尝试终止 {package_name}", position=InfoBarPosition.TOP_RIGHT, parent=self)
+
+    def lock_device_screen(self):
+        """模拟按下电源键"""
+        connector = ADBConnector()
+        devices = connector.list_devices()
+        if not devices:
+            InfoBar.warning("未发现设备", "请先连接手机", position=InfoBarPosition.TOP_RIGHT, parent=self)
+            return
+
+        target_dev = devices[0]
+        # KEYCODE_POWER = 26
+        cmd = ["shell", "input", "keyevent", "26"]
+        res = connector.execute_adb_command(cmd, target_dev)
+
+        if res is not None:
+            InfoBar.success("指令已发送", "已模拟电源键操作", position=InfoBarPosition.TOP_RIGHT, parent=self)
 
 
 # ============================================

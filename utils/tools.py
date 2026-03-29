@@ -329,7 +329,7 @@ class ADBConnector:
             print(f"截取屏幕区域时发生错误: {e}")
             return None
 
-    def click_screen(self, x: int, y: int, device_id: Optional[str] = None) -> bool:
+    def click_screen(self, x: int, y: int, device_id: Optional[str] = None, show_log: bool = True) -> bool:
         """
         点击设备屏幕指定位置
 
@@ -347,8 +347,9 @@ class ADBConnector:
             result = self.execute_adb_command(tap_command, device_id)
 
             if result is not None:
-                print(f"已点击屏幕坐标: ({x}, {y})")
-                return True
+                if show_log:
+                    print(f"已点击屏幕坐标: ({x}, {y})")
+                    return True
             else:
                 print(f"点击屏幕坐标 ({x}, {y}) 失败")
                 return False
@@ -698,7 +699,7 @@ def execute_screenshot_and_match(device_id, connector, template_path, debug=Fals
     }
 
 
-def click(x, y, connector=None, device_id=None):
+def click(x, y, connector=None, device_id=None, show_log=True):
     """
     在指定坐标处点击
     :param x: 点击x坐标
@@ -708,7 +709,7 @@ def click(x, y, connector=None, device_id=None):
     """
     if connector is None:
         connector = ADBConnector()
-    connector.click_screen(x, y, device_id)
+    connector.click_screen(x, y, device_id, show_log)
     time.sleep(0.5)
 
 
