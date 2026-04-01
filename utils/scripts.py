@@ -48,7 +48,7 @@ def spiral(connector, device_id, num):
     print("-> 执行螺旋操作...")
     for i in range(num):
         print(f"   螺旋第 {i + 1} 次")
-        click(2330, 1020, connector, device_id, show_log)
+        click(2330, 1020, connector, device_id, show_log=False)
         time.sleep(0.5)
 
 def sprint(connector, device_id):

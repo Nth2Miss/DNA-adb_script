@@ -160,13 +160,29 @@ class ADBConnector:
 
     def connect_device(self, device_ip: str, port: int = 5555) -> bool:
         """
-        通过IP地址连接设备
+        更稳健的连接校验：指令下发 + 列表匹配 + 通讯握手
         """
+        target = f"{device_ip}:{port}"
         try:
-            result = subprocess.run([self.adb_path, "connect", f"{device_ip}:{port}"],
-                                    capture_output=True, text=True, timeout=30)
-            return result.returncode == 0
-        except subprocess.TimeoutExpired:
+            # 1. 下发连接请求
+            subprocess.run([self.adb_path, "connect", target],
+                           capture_output=True, text=True, timeout=10)
+
+            # 2. 状态验证：检查目标是否出现在在线设备列表中
+            time.sleep(0.5)
+            online_devices = self.list_devices()
+            if target not in online_devices:
+                return False
+
+            # 3. 握手验证：尝试执行一个极小的 shell 命令确认双向通讯正常
+            # 使用 -s 锁定该设备，避免多设备干扰
+            check_cmd = [self.adb_path, "-s", target, "shell", "echo", "ready"]
+            res = subprocess.run(check_cmd, capture_output=True, text=True, timeout=5)
+
+            return res.stdout.strip() == "ready"
+
+        except (subprocess.TimeoutExpired, Exception) as e:
+            print(f"连接过程出现异常: {e}")
             return False
 
     def disconnect_device(self, device_ip: str, port: int = 5555) -> bool:
@@ -472,8 +488,7 @@ class ADBConnector:
         def check_ip(ip: str):
             # 使用 context manager (with) 自动关闭 socket
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                # 建议设置为 0.3~0.5s，平衡速度与稳定性
-                sock.settimeout(0.5)
+                sock.settimeout(0.3)
                 # connect_ex 成功返回 0，失败返回错误码
                 if sock.connect_ex((ip, 5555)) == 0:
                     return ip

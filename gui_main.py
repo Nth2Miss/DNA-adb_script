@@ -391,9 +391,9 @@ class SettingInterface(ScrollArea):
                 cwd=os.path.dirname(scrcpy_path),
                 creationflags=subprocess.CREATE_NO_WINDOW  # 如果不想弹出额外的 cmd 黑窗口可以加上这行
             )
-            print("Scrcpy 已启动")
+            InfoBar.success(title="启动成功", content="scrcpy 已启动", position=InfoBarPosition.TOP_RIGHT, parent=self)
         except Exception as e:
-            print(f"启动失败: {e}")
+            InfoBar.error(title="启动失败", content=str(e), position=InfoBarPosition.TOP_RIGHT, parent=self)
 
     def stop_game_app(self):
         """强制停止游戏应用 """
@@ -728,19 +728,22 @@ class HomeInterface(QWidget):
             return
 
         connector = ADBConnector()
-        # 如果 IP 没带端口，自动补齐 5555
         target = ip if ":" in ip else f"{ip}:5555"
-
         self.show_info("正在连接", f"尝试连接至 {target}...")
 
         # 执行连接
-        success = connector.connect_device(ip)  # tools.py 已有此方法
+        if connector.connect_device(ip):
+            time.sleep(0.5)
+            online_devices = connector.list_devices()
 
-        if success:
-            self.show_info("成功", f"已连接至 {target}")
-            if APP_CONFIG:
-                APP_CONFIG.set("last_ip", ip)
-            self.refresh_devices()
+            # 检查 target 是否在在线设备 ID 列表中
+            if any(target in dev for dev in online_devices):
+                self.show_info("成功", f"已连接至 {target}")
+                if APP_CONFIG:
+                    APP_CONFIG.set("last_ip", ip)
+                self.refresh_devices()
+            else:
+                self.show_info("失败", "连接已建立但设备处于离线或未授权状态", True)
         else:
             self.show_info("失败", "请确保手机已开启无线调试且在同一局域网", True)
 
