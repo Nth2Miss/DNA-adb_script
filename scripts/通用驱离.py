@@ -70,7 +70,7 @@ def main():
             wait_until_match(dev, connector, TEMPLATES["restart"], timeout=300, raise_err=True)
 
             run_count += 1
-            print(f"\n===== 第 {run_count} 次运行完成 =====")
+            print(f"===== 第 {run_count} 次运行完成 ===== || {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}")
             click(*COORDS["restart_btn"], connector, dev)
             time.sleep(0.5)
             combat_prep(connector, dev)

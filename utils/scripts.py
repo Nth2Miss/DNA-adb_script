@@ -1,4 +1,5 @@
 from utils.tools import *
+import time
 
 def select_commission_multiplier(connector, device_id):
     """
@@ -6,7 +7,7 @@ def select_commission_multiplier(connector, device_id):
     """
 
     # 获取用户在 GUI 中选择的倍率
-    multiplier = GLOBAL_CONFIG.get("commission_multiplier", "不使用")
+    multiplier = config_mgr.get("commission_multiplier", "不使用")
 
     # === 委托手册倍率坐标 ===
     MULTIPLIER_COORDS = {
@@ -27,11 +28,15 @@ def fuwei(connector, device_id):
     print("-> 执行角色复位...")
     # esc
     click(100, 80, connector, device_id)
+    time.sleep(0.1)
     # 设置
     click(2000, 1700, connector, device_id)
+    time.sleep(0.1)
     # 复位角色
     click(110, 870, connector, device_id)
-    click(2300, 520, connector, device_id)
+    time.sleep(0.1)
+    click(2400, 650, connector, device_id)
+    time.sleep(0.1)
     click(1470, 1030, connector, device_id)
 
 def ult(connector, device_id):
@@ -60,4 +65,8 @@ def timeout(connector, device_id):
     print("-> 执行超时重试...")
     # esc
     click(100, 80, connector, device_id)
+    time.sleep(0.1)
+    click(2600, 1667, connector, device_id)
+    time.sleep(0.1)
+    click(1465, 1030, connector, device_id)
 

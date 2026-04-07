@@ -4,7 +4,7 @@ import smtplib
 import threading
 from email.mime.text import MIMEText
 from email.header import Header
-from utils.tools import GLOBAL_CONFIG
+from utils.tools import config_mgr
 
 # 定义通用标题前缀
 APP_NAME = "二重螺旋 自动化"
@@ -29,11 +29,11 @@ def _send_email_core(subject, content):
     """
     内部方法：核心邮件发送逻辑
     """
-    smtp_server = GLOBAL_CONFIG.get("email_smtp", "")
-    port_str = GLOBAL_CONFIG.get("email_port", "465")
-    sender = GLOBAL_CONFIG.get("email_sender", "")
-    password = GLOBAL_CONFIG.get("email_pwd", "")
-    receiver = GLOBAL_CONFIG.get("email_receiver", "")
+    smtp_server = config_mgr.get("email_smtp", "")
+    port_str = config_mgr.get("email_port", "465")
+    sender = config_mgr.get("email_sender", "")
+    password = config_mgr.get("email_pwd", "")
+    receiver = config_mgr.get("email_receiver", "")
 
     if not all([smtp_server, port_str, sender, password, receiver]):
         return False, "邮件配置不完整，请在设置中补全"
@@ -69,7 +69,7 @@ def send_notification(title, message):
     _send_system_core(title, message)
 
     # 2. 触发邮件通知
-    if GLOBAL_CONFIG.get("email_enabled", False):
+    if config_mgr.get("email_enabled", False):
         # 注意：这里直接调用同步方法 _send_email_core 并返回它的结果
         # 因为调用这个函数的地方（如 gui_main.py 的 worker）通常已经在子线程里了
         return _send_email_core(title, message)

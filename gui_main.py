@@ -29,7 +29,8 @@ from qfluentwidgets import (
     TableWidget,
     LineEdit,
     SwitchButton,
-    PasswordLineEdit
+    PasswordLineEdit,
+    MessageBox,
 )
 
 
@@ -99,7 +100,17 @@ class Worker(QThread):
 
         set_running_state(True)
         file_name = os.path.basename(self.script_path)
-        print(f"--- 正在启动: {file_name} ---")
+        print(f"=== 正在启动: {file_name} ===")
+
+        # ==================================================
+        # 初始化当前设备的动态分辨率
+        # ==================================================
+        try:
+            connector = ADBConnector()
+            utils.tools.init_resolution(connector, self.device_id)
+        except Exception as e:
+            print(f"⚠️ 动态分辨率初始化异常: {e}")
+        # ==================================================
 
         # 劫持 sleep
         original_sleep = time.sleep
@@ -878,6 +889,22 @@ class MainWindow(FluentWindow):
         self.settingInterface.setObjectName('settingInterface')
         self.addSubInterface(self.settingInterface, FIF.SETTING, '设置', NavigationItemPosition.BOTTOM)
 
+    def closeEvent(self, event):
+        """ 重写关闭事件，增加二次确认 """
+        title = '确认退出'
+        content = '确定要关闭程序吗？'
+
+        # 创建 Fluent 风格的对话框
+        w = MessageBox(title, content, self)
+        w.yesButton.setText('确定')
+        w.cancelButton.setText('取消')
+
+        if w.exec():
+            # 用户点击确定：允许关闭
+            event.accept()
+        else:
+            # 用户点击取消：忽略关闭信号
+            event.ignore()
 
 
 class ScanWifiWorker(QThread):

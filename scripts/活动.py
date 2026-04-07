@@ -106,7 +106,9 @@ def main():
         print(e)
         notification.send_failure(e)
     finally:
-        pass
+        # 主脚本退出时停止后台线程
+        stop_action_event.set()
+        print("-> 脚本已停止，正在关闭后台战斗任务...")
 
 
 if __name__ == "__main__":

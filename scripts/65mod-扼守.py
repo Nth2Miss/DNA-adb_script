@@ -37,7 +37,7 @@ def combat_prep(connector, device, joystick):
     joystick.move('w', 3.8)
     joystick.move('a', 10)
     joystick.move('w', 8)
-    joystick.move('a', 23)
+    joystick.move('a', 27)
 
     fuwei(connector, device)
     time.sleep(1)
@@ -85,10 +85,33 @@ def main():
 
         # 2. 主逻辑循环
         while True:
-            wait_until_match(dev, connector, TEMPLATES["restart"], timeout=300, raise_err=True)
+            # --- 新增超时重试逻辑 ---
+            retry_limit = 5
+            retry_count = 0
+            found_restart = False
+
+            # while retry_count < retry_limit:
+            while retry_count < 1:
+                try:
+                    # 监控结算界面 (300秒超时)
+                    wait_until_match(dev, connector, TEMPLATES["restart"], timeout=300, raise_err=True)
+                    found_restart = True
+                    break  # 匹配成功，跳出重试循环
+                except Exception as e:
+                    retry_count += 1
+                    print(f"-> [超时/异常] 未检测到结算界面 (第 {retry_count}/{retry_limit} 次重试)...")
+                    # 执行 utils/scripts.py 中的 timeout 函数
+                    # timeout(connector, dev)
+                    time.sleep(2)  # 等待界面响应
+
+            if not found_restart:
+                print(f"-> 连续 {retry_limit} 次超时且重试失败，脚本停止运行。")
+                notification.send_failure("战斗连续超时，已停止。")
+                break
+            # -----------------------
 
             run_count += 1
-            print(f"\n===== 第 {run_count} 次运行完成 =====")
+            print(f"===== 第 {run_count} 次运行完成 ===== || {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}")
 
             # 使用预设坐标点击
             click(*COORDS["restart_btn"], connector, dev)
