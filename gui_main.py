@@ -61,8 +61,7 @@ try:
     from utils.tools import ADBConnector, set_running_state, StopScriptException
 
     # === 全局初始化配置管理器 ===
-    config_file_path = os.path.join(PROJECT_ROOT, "config.json")
-    APP_CONFIG = utils.tools.ConfigManager(config_file_path)
+    APP_CONFIG = utils.tools.config_mgr
     # =================================
 except ImportError as e:
     print(f"导入错误: {e}")
