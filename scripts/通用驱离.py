@@ -31,8 +31,8 @@ def combat_prep(connector, dev):
     print("-> 确认选择并进入...")
     click(*COORDS["confirm_btn"], connector, dev)
 
-    print("-> 等待加载 (15s)...")
-    time.sleep(15)
+    print("-> 等待加载 (20s)...")
+    time.sleep(20)
 
     ult(connector, dev)
     time.sleep(10)

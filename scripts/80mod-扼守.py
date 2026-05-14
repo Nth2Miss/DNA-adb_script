@@ -79,22 +79,13 @@ def main():
         # 2. 主逻辑循环
         while True:
             # --- 等待战斗结束（结算界面） ---
-            # 设置超时 600秒
+            # 设置超时 360秒
             print(f"\n[第 {run_count + 1} 轮] 战斗进行中，等待结算 (超时: 6分钟)...")
 
             wait_until_match(dev, connector, TEMPLATES["restart"], timeout=360, raise_err=True)
 
             run_count += 1
             print(f"===== 第 {run_count} 次运行完成 ===== || {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}")
-
-            # 点击结算确认
-            click(*COORDS["confirm_btn"], connector, dev)
-            print("等待结算动画...")
-            time.sleep(3)
-
-            # --- 等待再次挑战 ---
-            print("正在等待【再次挑战】按钮 (超时: 30秒)...")
-            wait_until_match(dev, connector, TEMPLATES["restart"], timeout=30, raise_err=True)
 
             # 点击重开
             click(*COORDS["restart_btn"], connector, dev)

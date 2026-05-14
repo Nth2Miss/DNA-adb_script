@@ -126,8 +126,8 @@ def init_resolution(connector, device_id: Optional[str] = None):
                 RESOLUTION_CONFIG["curr_width"] = min(w, h)
                 RESOLUTION_CONFIG["curr_height"] = max(w, h)
 
-                print("✅ 动态分辨率初始化 → 成功")
-                return True
+            print("✅ 动态分辨率初始化 → 成功")
+            return True
         else:
             print("❌ 获取分辨率失败: 未能从设备读取到有效的分辨率信息")
     except Exception as e:
@@ -247,6 +247,19 @@ class ADBConnector:
         res = self._run_cmd([self.adb_path, "-s", target, "shell", "echo", "ready"], timeout=5)
         return res and res.stdout.strip() == "ready"
 
+    def enable_tcpip(self, device_id: str, port: int = 5555) -> bool:
+        """
+        通过 USB 将设备切换到 TCP/IP 模式 (adb tcpip 5555)
+        """
+        try:
+            # 执行 adb -s [device_id] tcpip 5555
+            cmd = ["-s", device_id, "tcpip", str(port)]
+            result = self.execute_adb(cmd)
+            return result is not None
+        except Exception as e:
+            print(f"激活无线模式失败: {e}")
+            return False
+
     # --- 屏幕与交互操作 ---
 
     def get_screen_raw(self, device_id: Optional[str] = None) -> Optional[bytes]:
@@ -258,6 +271,45 @@ class ADBConnector:
         except Exception as e:
             print(f"获取屏幕原始数据失败: {e}")
             return None
+
+    def capture_screen(self, output_path: str = "screenshot.png", device_id: Optional[str] = None) -> bool:
+        """
+        截取设备屏幕并保存到本地
+
+        Args:
+            output_path: 本地保存路径
+            device_id: 设备ID，如果为None则使用默认设备
+
+        Returns:
+            bool: 截图是否成功
+        """
+        try:
+            # 使用screencap命令截取屏幕并保存到设备临时位置
+            temp_device_path = "/sdcard/screenshot_temp.png"
+            screencap_command = ["shell", "screencap", "-p", temp_device_path]
+
+            result = self.execute_adb(screencap_command, device_id)
+            if result is None:
+                print("截取屏幕失败")
+                return False
+
+            # 将截图从设备拉取到本地
+            print(output_path)
+            pull_command = ["pull", temp_device_path, output_path]
+            result_pull = self.execute_adb(pull_command, device_id)
+            if result_pull is None:
+                print("拉取截图失败")
+                return False
+
+            # 清理设备上的临时文件
+            rm_command = ["shell", "rm", temp_device_path]
+            self.execute_adb(rm_command, device_id)
+
+            print(f"屏幕截图已保存到: {output_path}")
+            return True
+        except Exception as e:
+            print(f"截图过程中发生错误: {e}")
+            return False
 
     def click_screen(self, x: int, y: int, device_id: Optional[str] = None, show_log: bool = True) -> bool:
         """带动态分辨率转换的屏幕点击"""
@@ -300,7 +352,7 @@ class ADBConnector:
 # ============================================
 class ImageMatcher:
     @staticmethod
-    def compare_template(screen_data: bytes, template_path: str, threshold: float = 0.8) -> Dict:
+    def compare_template(screen_data: bytes, template_path: str, threshold: float = 0.7) -> Dict:
         """全屏自适应匹配模板，返回坐标信息"""
         template_bgr = cv2.imread(template_path)
         if template_bgr is None:
@@ -348,38 +400,105 @@ class ImageMatcher:
 # 交互控制器
 # ============================================
 class JoystickController:
-    """带随机扰动的拟人化摇杆控制器"""
+    """
+    【最终版 - 秒级单位 + 走跑切换】带随机扰动的拟人化摇杆控制器
+    - 输入时间单位为“秒” (float)
+    - 支持 mode='walk' (限制半径) 和 mode='run' (越界瞬间起跑)
+    - 移除了角度抖动 (保证走路不画蛇形)
+    - 保留了触点漂移 (起点不固定)
+    """
 
-    def __init__(self, connector: ADBConnector, center_x: int, center_y: int, radius: int, device_id=None):
+    def __init__(self, connector, center_x: int, center_y: int, radius: int, run_threshold: int = 150, device_id=None):
         self.connector = connector
         self.cx = center_x
         self.cy = center_y
         self.radius = radius
+        self.run_threshold = run_threshold  # 走路/跑步的分界线
         self.device_id = device_id
 
-    def move(self, direction: str, duration: float = 1.0):
+        # 跑步速度 (像素/秒)：决定了起跑的瞬间爆发力
+        self.run_speed_px = 3000
+
+    def _get_random_start_point(self, range_limit=15):
+        """获取圆心附近的随机起始点 (高斯分布模拟人手误差)"""
+        offset_x = int(random.gauss(0, range_limit))
+        offset_y = int(random.gauss(0, range_limit))
+        # 限制最大偏移量，防止偏离太远
+        offset_x = max(min(offset_x, range_limit * 2), -range_limit * 2)
+        offset_y = max(min(offset_y, range_limit * 2), -range_limit * 2)
+        return self.cx + offset_x, self.cy + offset_y
+
+    def move(self, direction: str, duration: float = 1.0, mode: str = 'run', debug=False):
+        """
+        params:
+            direction: 'w', 'a', 's', 'd' 及其组合
+            duration: 持续时间 (单位：秒)，例如 0.5 或 2.5
+            mode: 'walk' (走路) 或 'run' (跑步)
+        """
         direction = direction.lower()
         if not direction: return
 
-        dx = ('d' in direction) - ('a' in direction)
-        dy = ('s' in direction) - ('w' in direction)
+        # --- 1. 基础方向向量 ---
+        dx, dy = 0, 0
+        if 'w' in direction: dy -= 1  # 上
+        if 's' in direction: dy += 1  # 下
+        if 'a' in direction: dx -= 1  # 左
+        if 'd' in direction: dx += 1  # 右
+
         if dx == 0 and dy == 0: return
 
+        # 计算标准移动角度
         move_angle = math.atan2(dy, dx)
 
-        # 触点漂移与力度浮动
-        start_x = self.cx + max(min(int(random.gauss(0, 15)), 30), -30)
-        start_y = self.cy + max(min(int(random.gauss(0, 15)), 30), -30)
-        current_radius = self.radius * random.uniform(0.95, 1.05)
+        # --- 2. 随机化处理 ---
 
+        # A. 触点漂移
+        # 获取一个随机的起始点，而不是永远从圆心开始
+        start_x, start_y = self._get_random_start_point(range_limit=10)
+
+        # B. 力度/半径计算 (根据 Walk/Run 模式分支)
+        if mode == 'walk':
+            # 走路模式：限制在阈值内的 40%~90%，确保不会意外触发跑步
+            min_walk = self.run_threshold * 0.4
+            max_walk = self.run_threshold * 0.9
+            current_radius = random.uniform(min_walk, max_walk)
+        else:
+            # 跑步模式：使用 Over-drag (越界拖拽) 技巧
+            # 距离 = 速度(px/s) * 时间(s)
+            virtual_dist = self.run_speed_px * duration
+            # 确保至少拉出一定距离，并在远端加一点随机波动
+            current_radius = max(self.radius * 1.2, virtual_dist)
+            current_radius += random.uniform(-200, 200)
+            current_radius = min(current_radius, 5000)  # 防止坐标溢出报错
+
+        # --- 3. 计算终点 ---
+        # 基于【随机后的起点】计算终点，保证滑动轨迹是【完全平行的直线】
         target_x = start_x + current_radius * math.cos(move_angle)
         target_y = start_y + current_radius * math.sin(move_angle)
 
-        actual_duration_ms = max(50, int(duration * 1000) + random.randint(-30, 30))
+        # C. 时间转换与浮动 (秒 -> 毫秒)
+        # 将秒转换为毫秒，并添加 +/- 30ms 的随机波动
+        base_ms = int(duration * 1000)
+        actual_duration_ms = base_ms + random.randint(-30, 30)
 
-        # 底层swipe_screen已经集成了坐标转换，这里不需要再转
-        self.connector.swipe_screen(int(start_x), int(start_y), int(target_x), int(target_y),
-                                    actual_duration_ms, self.device_id)
+        # 确保时间不为负数，且至少有 50ms
+        actual_duration_ms = max(50, actual_duration_ms)
+
+        if debug:
+            print(f"移动: {direction} | 模式: {mode} | 设定: {duration}s | 实际指令: {actual_duration_ms}ms")
+
+        # --- 4. 执行滑动 ---
+        # 转换为整数坐标
+        sx, sy = int(start_x), int(start_y)
+        ex, ey = int(target_x), int(target_y)
+
+        self.connector.swipe_screen(
+            sx, sy,
+            ex, ey,
+            actual_duration_ms,
+            self.device_id
+        )
+
 
 
 # ============================================
@@ -450,6 +569,36 @@ def random_click(x1: int, y1: int, x2: int, y2: int, connector: ADBConnector = N
         print(f"点击坐标 ({random_x}, {random_y}) 失败")
 
 
+def long_press(x: int, y: int, duration: float, connector: ADBConnector = None, device_id: str = None,
+               show_log: bool = True):
+    """
+    按住屏幕指定位置，单位为秒
+    :param x: 基础分辨率 X (2800)
+    :param y: 基础分辨率 Y (1840)
+    :param duration: 按住持续时间（秒），支持小数，如 0.5
+    """
+    if connector is None:
+        connector = ADBConnector()
+
+    # 转换为实际分辨率坐标
+    real_x, real_y = adapt_coord(x, y)
+
+    # 将秒转换为 ADB 所需的毫秒
+    duration_ms = int(duration * 1000)
+
+    # ADB 长按原理：起始点和终点相同，并指定持续时间
+    cmd = [
+        "shell", "input", "swipe",
+        str(real_x), str(real_y),
+        str(real_x), str(real_y),
+        str(duration_ms)
+    ]
+
+    res = connector.execute_adb(cmd, device_id)
+    if res is not None and show_log:
+        print(f"-> 已长按坐标: ({real_x}, {real_y}) 持续 {duration}s")
+    return res is not None
+
 def random_sleep(min_time: float, max_time: float = None, variation: float = 0.1):
     """支持 GUI 中断的随机睡眠 """
     check_running()
@@ -471,7 +620,7 @@ def execute_screenshot_and_match(device_id: str, connector: ADBConnector, templa
 
 
 def wait_until_match(device_id: str, connector: ADBConnector, template_path: str, timeout: int = 60,
-                     raise_err: bool = True) -> Optional[Dict]:
+                     raise_err: bool = True, debug: bool = False) -> Optional[Dict]:
     """阻塞式等待图片出现"""
     print(f"正在等待: {template_path} (超时: {timeout}s)...")
     start_time = time.time()
@@ -481,6 +630,8 @@ def wait_until_match(device_id: str, connector: ADBConnector, template_path: str
         res = execute_screenshot_and_match(device_id, connector, template_path)
         if res.get('is_match'):
             return res
+        elif debug:
+            print(f"  未匹配: {res}")
         time.sleep(1.5)
 
     if raise_err:

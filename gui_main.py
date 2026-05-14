@@ -31,6 +31,7 @@ from qfluentwidgets import (
     SwitchButton,
     PasswordLineEdit,
     MessageBox,
+    SettingCard,
 )
 
 
@@ -105,6 +106,7 @@ class Worker(QThread):
         # 初始化当前设备的动态分辨率
         # ==================================================
         try:
+            print("正在初始化动态分辨率...")
             connector = ADBConnector()
             utils.tools.init_resolution(connector, self.device_id)
         except Exception as e:
@@ -418,7 +420,7 @@ class SettingInterface(ScrollArea):
 
         # 执行 adb shell am force-stop
         cmd = ["shell", "am", "force-stop", package_name]
-        res = connector.execute_adb_command(cmd, target_dev)
+        res = connector.execute_adb(cmd, target_dev)
 
         if res is not None:
             InfoBar.success("操作成功", f"已尝试终止 {package_name}", position=InfoBarPosition.TOP_RIGHT, parent=self)
@@ -434,7 +436,7 @@ class SettingInterface(ScrollArea):
         target_dev = devices[0]
         # KEYCODE_POWER = 26
         cmd = ["shell", "input", "keyevent", "26"]
-        res = connector.execute_adb_command(cmd, target_dev)
+        res = connector.execute_adb(cmd, target_dev)
 
         if res is not None:
             InfoBar.success("指令已发送", "已模拟电源键操作", position=InfoBarPosition.TOP_RIGHT, parent=self)
@@ -465,8 +467,6 @@ class OtherSettingInterface(ScrollArea):
         # ----------------------------------------
         # 2. 委托手册设置卡片 (优化布局)
         # ----------------------------------------
-        from qfluentwidgets import SettingCard
-
         self.commissionCard = SettingCard(
             FIF.DICTIONARY,
             "委托手册倍率",
@@ -548,6 +548,26 @@ class OtherSettingInterface(ScrollArea):
         self.emailCard.viewLayout.addWidget(self.emailConfigWidget)
         self.vBoxLayout.addWidget(self.emailCard)
 
+        # ----------------------------------------
+        # 4. 重新加载 Utils 模块卡片 (用于热更新)
+        # ----------------------------------------
+        self.reloadUtilsCard = SettingCard(
+            FIF.SYNC,
+            "开发与调试",
+            "重新加载 utils.tools 和 utils.scripts 模块，修改底层代码后无需重启即可生效",
+            self.scrollWidget
+        )
+
+        self.reloadUtilsBtn = PushButton("重载 Utils", self.reloadUtilsCard)
+        self.reloadUtilsBtn.setIcon(FIF.UPDATE)
+        self.reloadUtilsBtn.clicked.connect(self.reload_utils)
+
+        self.reloadUtilsCard.hBoxLayout.addStretch(1)
+        self.reloadUtilsCard.hBoxLayout.addWidget(self.reloadUtilsBtn)
+        self.reloadUtilsCard.hBoxLayout.addSpacing(15)
+
+        self.vBoxLayout.addWidget(self.reloadUtilsCard)
+
         self.vBoxLayout.addStretch(1)
 
     def test_send_mail(self):
@@ -568,6 +588,60 @@ class OtherSettingInterface(ScrollArea):
                                          Q_ARG(str, "error"), Q_ARG(str, str(e)))
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def reload_utils(self):
+        """重新加载 utils 模块并刷新全局引用"""
+        self.reloadUtilsBtn.setEnabled(False)
+        self.reloadUtilsBtn.setText("重载中...")
+
+        try:
+            import importlib
+            import utils.tools
+
+            # 如果 scripts 还没被加载过，先尝试导入
+            try:
+                import utils.scripts
+            except ImportError:
+                pass
+
+            # 1. 优先重载 tools (底层依赖)
+            importlib.reload(utils.tools)
+
+            # 2. 再重载 scripts (依赖 tools)
+            import sys
+            if 'utils.scripts' in sys.modules:
+                importlib.reload(sys.modules['utils.scripts'])
+
+            # 3. 更新 gui_main.py 顶部的全局引用
+            # 注意：必须更新全局引用，否则当前线程中的这些变量仍会指向旧的内存地址
+            global ADBConnector, set_running_state, StopScriptException, APP_CONFIG
+            ADBConnector = utils.tools.ADBConnector
+            set_running_state = utils.tools.set_running_state
+            StopScriptException = utils.tools.StopScriptException
+            APP_CONFIG = utils.tools.config_mgr
+
+            InfoBar.success(
+                title="操作成功",
+                content="Utils 下的 tools 与 scripts 模块已重新加载，可以直接运行新逻辑。",
+                position=InfoBarPosition.TOP_RIGHT,
+                parent=self
+            )
+            print("=== Utils 模块重载成功 ===")
+
+        except Exception as e:
+            import traceback
+            err_msg = str(e)
+            print(f"重载 Utils 发生异常:\n{traceback.format_exc()}")
+            InfoBar.error(
+                title="重载失败",
+                content=f"错误信息: {err_msg}",
+                position=InfoBarPosition.TOP_RIGHT,
+                parent=self
+            )
+        finally:
+            # 恢复按钮状态
+            self.reloadUtilsBtn.setEnabled(True)
+            self.reloadUtilsBtn.setText("重载 Utils")
 
     @pyqtSlot(str, str)
     def show_msg(self, type_str, msg):

@@ -35,7 +35,7 @@ def fuwei(connector, device_id):
     # 复位角色
     click(110, 870, connector, device_id)
     time.sleep(0.1)
-    click(2400, 650, connector, device_id)
+    click(2400, 1290, connector, device_id)
     time.sleep(0.1)
     click(1470, 1030, connector, device_id)
 
@@ -53,7 +53,7 @@ def spiral(connector, device_id, num):
     print("-> 执行螺旋操作...")
     for i in range(num):
         print(f"   螺旋第 {i + 1} 次")
-        click(2330, 1020, connector, device_id, show_log=False)
+        click(2425, 1060, connector, device_id, show_log=False)
         time.sleep(0.5)
 
 def sprint(connector, device_id):
