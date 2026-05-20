@@ -6,7 +6,7 @@ import utils.notification as notification
 
 # --- 配置区：集中管理坐标和模板路径 ---
 TEMPLATES = {
-    "start": "templates/start_1.png",
+    "start": "templates/start.png",
     "restart": "templates/restart.png"
 }
 

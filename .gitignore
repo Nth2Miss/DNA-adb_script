@@ -21,3 +21,6 @@ __pycache__/
 
 archive
 /test/
+
+# env
+config.json

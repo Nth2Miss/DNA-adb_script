@@ -86,6 +86,8 @@ class ConfigManager:
             print(f"保存配置失败: {e}")
 
     def get(self, key: str, default=None):
+        # 重新从磁盘加载，保证实时同步
+        self.load()
         return self.data.get(key, default)
 
     def set(self, key: str, value: Any):
@@ -95,9 +97,12 @@ class ConfigManager:
         self.data[key] = value
         self.save()
 
+# 获取当前文件所在目录的父目录（即项目根目录）
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
 
 # 全局配置实例
-config_mgr = ConfigManager("config.json")
+config_mgr = ConfigManager(CONFIG_PATH)
 
 # ============================================
 # 动态分辨率配置与转换(不需要改动)
@@ -530,9 +535,9 @@ def list_devices(connector: ADBConnector) -> List[str]:
         print("未找到已连接的设备")
     return devices
 
-def click(x: int, y: int, connector: ADBConnector = None, device_id: str = None, show_log: bool = True):
+def click(x: int, y: int, connector: ADBConnector = None, device_id: str = None, show_log: bool = False):
     """
-    原有的高层点击函数
+    高层点击函数
     """
     if connector is None:
         connector = ADBConnector()
@@ -542,7 +547,7 @@ def click(x: int, y: int, connector: ADBConnector = None, device_id: str = None,
 
 def random_click(x1: int, y1: int, x2: int, y2: int, connector: ADBConnector = None, device_id: str = None):
     """
-    原有的区域随机点击函数
+    区域随机点击函数
     """
     if connector is None:
         connector = ADBConnector()

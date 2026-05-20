@@ -68,10 +68,8 @@ def send_notification(title, message):
     # 1. 触发 Windows 弹窗
     _send_system_core(title, message)
 
-    # 2. 触发邮件通知
+    # 2. 通过模块路径访问，确保拿到的是重载后的最新实例
     if config_mgr.get("email_enabled", False):
-        # 注意：这里直接调用同步方法 _send_email_core 并返回它的结果
-        # 因为调用这个函数的地方（如 gui_main.py 的 worker）通常已经在子线程里了
         return _send_email_core(title, message)
 
     return True, "系统弹窗已发送（邮件通知未开启）"
