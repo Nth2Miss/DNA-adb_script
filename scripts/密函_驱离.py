@@ -64,7 +64,7 @@ def run(device_id=None):
 
     try:
         # 1. 初始检测进入
-        status_notifier.update(run_count, "正在检查设备初始状态...")
+        status_notifier.update(run_count, "正在检查设备初始状态...", "∞")
         res_start = wait_until_match(dev, connector, TEMPLATES["start"], timeout=5, raise_err=False)
 
         if not res_start:
@@ -114,6 +114,11 @@ def run(device_id=None):
             time.sleep(1)
             combat_prep(connector, dev, joystick, run_count)
 
+
+    except StopScriptException:
+        status_notifier.update(run_count, "🛑 脚本已成功停止")
+        print("\n[系统提示] 用户手动停止脚本，任务安全终止。")
+
     except TimeoutException as e:
         error_msg = f"运行出错: {e}"
         status_notifier.update(run_count, "❌ 等待超时 / 发生异常")
@@ -123,12 +128,15 @@ def run(device_id=None):
         except Exception:
             pass
 
-    except StopScriptException:
-        status_notifier.update(run_count, "🛑 脚本已成功停止")
-        print("\n用户手动停止脚本")
+    except Exception as e:
+        error_msg = f"未知错误: {e}"
+        status_notifier.update(run_count, "❌ 脚本遭遇未知错误")
+        print(f"\n❌ {error_msg}")
+        try:
+            notification.send_failure(error_msg)
+        except Exception:
+            pass
 
-    except KeyboardInterrupt:
-        print("\n脚本已停止")
     finally:
         cv2.destroyAllWindows()
 

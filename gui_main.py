@@ -234,7 +234,7 @@ class LogInterface(ScrollArea):
         elif "❌" in cleaned_text or "错误" in cleaned_text or "异常" in cleaned_text:
             html = f'<font color="#851614"><b>[{current_time}] {cleaned_text}</b></font>'
         elif "[步骤]" in cleaned_text:
-            html = f'<font color="#0066CC"><b>[{current_time}] {cleaned_text}</b></font>'
+            html = f'<font color="#0066CC">[{current_time}] {cleaned_text}</font>'
         else:
             html = f'<font color="#777777">[{current_time}]</font> <font color="#333333">{cleaned_text}</font>'
         self.logText.append(html)
@@ -352,6 +352,9 @@ class HomeInterface(QWidget):
         self.statusTable.setBorderVisible(True)
         self.statusTable.setBorderRadius(8)
 
+        self.statusTable.setSelectionMode(TableWidget.SelectionMode.NoSelection)
+        # self.statusTable.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
         # 设置 4 行、1 列（隐藏上方表头，开启左侧垂直表头）
         self.statusTable.setColumnCount(1)
         self.statusTable.setRowCount(4)
@@ -385,9 +388,12 @@ class HomeInterface(QWidget):
         self.statusTable.setItem(2, 0, QTableWidgetItem("-"))
         self.statusTable.setItem(3, 0, QTableWidgetItem("就绪 / 未启动"))
 
-    def on_status_updated(self, current_round, step_desc):
+    def on_status_updated(self, current_round, step_desc, total_round=None):
         # 更新第 2 行（当前进度）与第 3 行（操作步骤）
         self.statusTable.setItem(2, 0, QTableWidgetItem(f"第 {current_round} 轮"))
+
+        if total_round is not None:
+            self.statusTable.setItem(1, 0, QTableWidgetItem(f"{total_round} 次"))
 
         step_item = QTableWidgetItem(step_desc)
         if "✅" in step_desc or "成功" in step_desc:
@@ -411,7 +417,7 @@ class HomeInterface(QWidget):
 
         # 开始运行时填充第 0 行和第 1 行
         self.statusTable.setItem(0, 0, QTableWidgetItem(name))
-        self.statusTable.setItem(1, 0, QTableWidgetItem("999 次"))
+        self.statusTable.setItem(1, 0, QTableWidgetItem("- 次"))
         self.statusTable.setItem(2, 0, QTableWidgetItem("准备中..."))
 
         self.worker = Worker(script_path, device)
@@ -773,38 +779,71 @@ class OtherSettingInterface(ScrollArea):
         threading.Thread(target=worker, daemon=True).start()
 
     def reload_utils(self):
-        self.reloadUtilsBtn.setEnabled(False);
+        """动态扫描并重载 utils 目录下的所有模块，自动刷新全局引用"""
+        self.reloadUtilsBtn.setEnabled(False)
         self.reloadUtilsBtn.setText("重载中...")
-        try:
-            import importlib;
-            import utils.tools
-            try:
-                import utils.scripts
-            except ImportError:
-                pass
-            importlib.reload(utils.tools)
-            if 'utils.scripts' in sys.modules: importlib.reload(sys.modules['utils.scripts'])
-            global ADBConnector, set_running_state, StopScriptException, APP_CONFIG
-            ADBConnector = utils.tools.ADBConnector;
-            set_running_state = utils.tools.set_running_state
-            StopScriptException = utils.tools.StopScriptException;
-            APP_CONFIG = utils.tools.config_mgr
-            InfoBar.success(title="操作成功", content="Utils 下的 tools 与 scripts 模块已重新加载，可以直接运行新逻辑。",
-                            position=InfoBarPosition.TOP_RIGHT, parent=self)
-        except Exception as e:
-            InfoBar.error(title="重载失败", content=f"错误信息: {str(e)}", position=InfoBarPosition.TOP_RIGHT,
-                          parent=self)
-        finally:
-            self.reloadUtilsBtn.setEnabled(True); self.reloadUtilsBtn.setText("重载 Utils")
 
-    @pyqtSlot(str, str)
-    def show_msg(self, type_str, msg):
-        self.testMailBtn.setEnabled(True);
-        self.testMailBtn.setText("发送测试邮件")
-        if type_str == "success":
-            InfoBar.success("成功", msg, position=InfoBarPosition.TOP_RIGHT, parent=self)
-        else:
-            InfoBar.error("失败", msg, position=InfoBarPosition.TOP_RIGHT, parent=self)
+        try:
+            import importlib
+            import sys
+            import os
+
+            # 1. 动态扫描 utils 文件夹下的所有 .py 文件
+            utils_dir = os.path.join(PROJECT_ROOT, "utils")
+            if not os.path.exists(utils_dir):
+                raise FileNotFoundError(f"找不到 utils 目录: {utils_dir}")
+
+            reloaded_modules = []
+
+            # 遍历并强制重载所有在 sys.modules 缓存中的 utils 模块
+            for f in os.listdir(utils_dir):
+                if f.endswith(".py") and f != "__init__.py":
+                    module_name = f"utils.{f[:-3]}"  # 去掉 .py 后缀，组合成包名（如 utils.tools）
+
+                    # 只有当模块已经被加载过（在缓存里），才需要进行热重载
+                    if module_name in sys.modules:
+                        importlib.reload(sys.modules[module_name])
+                        reloaded_modules.append(f[:-3])
+
+            # 2. 核心刷新点：手动更新当前文件（gui_main.py）顶层从 utils.tools 导入的全局引用
+            import utils.tools
+
+            global ADBConnector, set_running_state, StopScriptException, APP_CONFIG
+            ADBConnector = utils.tools.ADBConnector
+            set_running_state = utils.tools.set_running_state
+            StopScriptException = utils.tools.StopScriptException
+            APP_CONFIG = utils.tools.config_mgr
+
+            # 3. 核心刷新点 2：动态重新绑定分发单例的插头，防止断连
+            main_win = self.window()
+            if main_win:
+                utils.tools.status_notifier.callback = main_win.homeInterface.on_status_updated
+                if hasattr(main_win, 'logInterface'):
+                    utils.tools.status_notifier.log_callback = main_win.logInterface.append_log
+
+            # 组织提示语
+            mod_list_str = "、".join(reloaded_modules) if reloaded_modules else "无（未在内存中运行）"
+            InfoBar.success(
+                title="全自动重载成功",
+                content=f"已成功刷新动态模块：[{mod_list_str}]。新代码已立刻全局生效！",
+                position=InfoBarPosition.TOP_RIGHT,
+                parent=self
+            )
+            print(f"=== 🔄 动态热重载成功！已刷新模块: {reloaded_modules} ===")
+
+        except Exception as e:
+            import traceback
+            err_msg = str(e)
+            print(f"❌ 自动重载 Utils 发生异常:\n{traceback.format_exc()}")
+            InfoBar.error(
+                title="重载失败",
+                content=f"错误信息: {err_msg}",
+                position=InfoBarPosition.TOP_RIGHT,
+                parent=self
+            )
+        finally:
+            self.reloadUtilsBtn.setEnabled(True)
+            self.reloadUtilsBtn.setText("重载 Utils")
 
 
 # ============================================

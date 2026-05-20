@@ -661,10 +661,10 @@ class ScriptStatusSignaler:
         self.callback = None
         self.log_callback = None
 
-    def update(self, current_round: int, step_desc: str):
+    def update(self, current_round: int, step_desc: str, total_round: int = None):
         """同步更新主界面单行看板表格的状态"""
         if self.callback:
-            self.callback(current_round, step_desc)
+            self.callback(current_round, step_desc, total_round)
         # 步骤也会自动在侧边栏详细日志中同步写一份
         self.log(f"[步骤] {step_desc}")
 
