@@ -32,7 +32,8 @@ def combat_prep(connector, device, joystick, run_count):
     """封装：选密函 -> 进场 -> 移动 -> 开大"""
     # 表格更新当前操作步骤
     status_notifier.update(run_count, "正在选择密函...")
-    click(*COORDS["secret_3"], connector, device, show_log=False)  # 暂时设置第三个
+    click(*COORDS["secret_1"], connector, device, show_log=False)
+    # click(*COORDS["secret_3"], connector, device, show_log=False)  # 暂时设置第三个
     time.sleep(0.5)
     click(*COORDS["confirm_sel"], connector, device, show_log=False)
 
