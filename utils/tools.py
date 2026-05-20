@@ -613,15 +613,24 @@ def random_sleep(min_time: float, max_time: float = None, variation: float = 0.1
         base_variation = min_time * variation
         sleep_time = max(0.3, min_time + random.uniform(-base_variation, base_variation * 2))
 
-    print(f"等待 {sleep_time:.2f} 秒")
+    status_notifier.log(f"等待 {sleep_time:.2f} 秒...")
     smart_sleep(sleep_time)
 
 
-def execute_screenshot_and_match(device_id: str, connector: ADBConnector, template_path: str) -> Dict:
+def random_sleep_extended(min_time: float, max_time: float = None, variation: float = 0.1):
+    """支持 GUI 中断的长时间随机睡眠 """
+    random_sleep(min_time, max_time, variation)
+
+
+def execute_screenshot_and_match(device_id: str, connector: ADBConnector, template_path: str, region=None,
+                                 debug: bool = False) -> Dict:
     raw_data = connector.get_screen_raw(device_id)
     if not raw_data:
         return {"is_match": False}
-    return ImageMatcher.compare_template(raw_data, template_path)
+    res = ImageMatcher.compare_template(raw_data, template_path)
+    if debug:
+        status_notifier.log(f"截图匹配结果: {res}")
+    return res
 
 
 def wait_until_match(device_id: str, connector: ADBConnector, template_path: str, timeout: int = 60,
@@ -642,3 +651,29 @@ def wait_until_match(device_id: str, connector: ADBConnector, template_path: str
     if raise_err:
         raise TimeoutException(f"等待超时：{timeout}秒内未找到目标 {template_path}")
     return None
+
+
+# ============================================
+# 统一状态与日志分发器（用于主页表格与侧边栏日志分流）
+# ============================================
+class ScriptStatusSignaler:
+    def __init__(self):
+        self.callback = None
+        self.log_callback = None
+
+    def update(self, current_round: int, step_desc: str):
+        """同步更新主界面单行看板表格的状态"""
+        if self.callback:
+            self.callback(current_round, step_desc)
+        # 步骤也会自动在侧边栏详细日志中同步写一份
+        self.log(f"[步骤] {step_desc}")
+
+    def log(self, text: str):
+        """同步将详细调试信息追加到侧边栏日志面板"""
+        if self.log_callback:
+            self.log_callback(text)
+        else:
+            print(text)
+
+# 全局单例，供所有自动化业务脚本和GUI导入共享
+status_notifier = ScriptStatusSignaler()
